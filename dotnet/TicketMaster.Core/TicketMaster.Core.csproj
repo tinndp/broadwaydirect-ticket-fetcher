@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Parse/group logic + the Mongo store. Builds + tests on macOS/Linux (the store just needs a
+       reachable Mongo at run time). Mirrors the ETECH bot's TicketMasterListingBuilder +
+       TicketMasterSavePipeline's Mongo write
+       (ETECH.Application/Rowing/TicketMaster/TicketMasterCrawlerBot). -->
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" Version="2.29.0" />
+  </ItemGroup>
+
+</Project>
