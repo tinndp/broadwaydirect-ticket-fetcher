@@ -27,6 +27,27 @@ var clients = new ConcurrentDictionary<string, PaciolanEvenueClient>();
 PaciolanEvenueClient GetClient(string proxyTemplate) =>
     clients.GetOrAdd(proxyTemplate, p => new PaciolanEvenueClient(p, fetchOptions));
 
+// Ported from python/paciolanevenue/api.py's _pick_proxy/_env_proxy_template (added 2026-09-22 -
+// this fallback chain was missing entirely before: proxy was ONLY ever taken from the request
+// body). Priority: request body > PACIOLAN_PROXY_* env vars > no proxy. Does NOT port the Python
+// side's further fallback to a gitignored _local_proxy.py module or a PACIOLAN_PROXY_LIST_PATH
+// round-robin pool - neither has an obvious .NET equivalent file/convention yet; add one if this
+// needs a rotating pool later.
+string PickProxy(string? requested)
+{
+    if (!string.IsNullOrWhiteSpace(requested))
+        return ProxyUri.Normalize(requested);
+
+    var host = Environment.GetEnvironmentVariable("PACIOLAN_PROXY_HOST");
+    var port = Environment.GetEnvironmentVariable("PACIOLAN_PROXY_PORT");
+    var user = Environment.GetEnvironmentVariable("PACIOLAN_PROXY_USER") ?? "";
+    var pass = Environment.GetEnvironmentVariable("PACIOLAN_PROXY_PASS") ?? "";
+    if (!string.IsNullOrEmpty(host) && !string.IsNullOrEmpty(port))
+        return $"http://{user}:{pass}@{host}:{port}";
+
+    return "";
+}
+
 // Lazily connects to MongoDB on first use. This is the ONLY place listing data lands (see
 // PaciolanEvenueInventoryStore's own doc comment for the collection-shape decision), so a null
 // store or a failed write is FATAL to the request - unlike BroadwayDirect.Api's best-effort mirror.
@@ -106,9 +127,16 @@ PaciolanEvenueListing[] BuildDocs(string sourceEventId, List<ListingGroup> listi
 }
 
 // POST /api/seatavailability { eventId, url, proxy? } -> { eventId, event, priceLevels, listings,
-// coverage }. Same request contract as the Python paciolanevenue package's api.py (eventId must
-// equal the itemCd parsed from url). url = the event page
+// coverage }. eventId must equal the itemCd parsed from url. url = the event page
 // (https://{host}/event/{seasonCd}/{itemCd}).
+//
+// REQUEST shape matches python/paciolanevenue/api.py's SeatAvailabilityRequest exactly
+// ({eventId, url, proxy?}). The RESPONSE shape does NOT match byte-for-byte: this uses
+// camelCase/ASP.NET Core's default JSON naming (eventName, priceLevelCd, seatKeys...) and adds
+// sourceEventId; the Python side returns snake_case (event_name, price_level_cd, seat_keys...)
+// and has no sourceEventId field. Not treated as a bug to fix without a reason to - camelCase
+// matches this repo's C# conventions (BroadwayDirect.Api/StubHub.Api are camelCase too), and
+// nothing currently consumes both APIs and expects one shape.
 app.MapPost("/api/seatavailability", async (SeatAvailabilityRequest req) =>
 {
     if (string.IsNullOrWhiteSpace(req.EventId) || string.IsNullOrWhiteSpace(req.Url))
@@ -125,11 +153,14 @@ app.MapPost("/api/seatavailability", async (SeatAvailabilityRequest req) =>
     if (!string.Equals(itemCd, req.EventId, StringComparison.OrdinalIgnoreCase))
         return Results.BadRequest(new { error = $"eventId mismatch: url has itemCd={itemCd}, body has eventId={req.EventId}" });
 
-    var proxy = "";
-    if (!string.IsNullOrWhiteSpace(req.Proxy))
+    string proxy;
+    try
     {
-        try { proxy = ProxyUri.Normalize(req.Proxy); }
-        catch (FormatException ex) { return Results.BadRequest(new { error = $"invalid proxy: {ex.Message}" }); }
+        proxy = PickProxy(req.Proxy);
+    }
+    catch (FormatException ex)
+    {
+        return Results.BadRequest(new { error = $"invalid proxy: {ex.Message}" });
     }
 
     EventPageData ev;
@@ -139,6 +170,15 @@ app.MapPost("/api/seatavailability", async (SeatAvailabilityRequest req) =>
     {
         ev = await client.GetEventAsync(host, seasonCd, itemCd);
         seatResult = await client.GetSeatAvailabilityAsync(ev);
+    }
+    // NotAnEventPage (wrong itemCd) is not a block - matches python/paciolanevenue/api.py's own
+    // 404-vs-502 split exactly. Getting this wrong (both as 502) is a real bug that was found and
+    // fixed 2026-09-22: it made a genuine PerimeterX block indistinguishable from "this itemCd
+    // doesn't exist" purely from the status code, which is what made a REAL, previously-confirmed
+    // event (F26/F03) look like it might be a code bug during debugging.
+    catch (PaciolanEvenueNotAnEventException ex)
+    {
+        return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status404NotFound);
     }
     catch (PaciolanEvenueBlockedException ex)
     {

@@ -62,6 +62,17 @@ them only on the 3rd retry). A 502 after all `Retries` are exhausted with a Peri
 the detail is expected occasionally, not necessarily a bug - see that document before concluding
 the technique doesn't work.
 
+**Real bug found + fixed 2026-09-22** (first real Windows run, against `F26/F03` - a KNOWN-GOOD
+event previously verified by the Python client): got a 502 "did not render a single event (context
+!= 'eventdetailpage') - not a PerimeterX block, not retrying" for a URL that DOES exist.
+Root cause: `PaciolanEvenueBrowser.SettleAsync()` returned the instant no block marker was found,
+but never waited for the page to actually finish (re)loading after the PerimeterX challenge clears
+- the Python client's own `_settle()` does (`wait_for_load_state("networkidle", timeout=3000)`
+*after* the marker check passes), and the C# port had silently dropped that step. Fixed by polling
+`document.readyState` for up to 3s once markers clear, before reading the page. If you still see
+this exact error after pulling the fix, it means the itemCd genuinely does not exist (test against
+a URL you've confirmed loads in a real browser first).
+
 ## Running the API
 
 ```bash

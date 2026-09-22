@@ -32,8 +32,11 @@ public sealed class PaciolanEvenueClient : IAsyncDisposable
 
     /// <summary>Returns EventPageData (incl. PriceLevels). Retries with a fresh proxy session up
     /// to Options.Retries times if PerimeterX blocks the page. Throws PaciolanEvenueBlockedException
-    /// after exhausting retries, or InvalidOperationException immediately if the page is not a real
-    /// event page (wrong itemCd - retrying with a new IP would not fix that).</summary>
+    /// after exhausting retries, or PaciolanEvenueNotAnEventException immediately (no retry) if the
+    /// page is not a real event page (wrong itemCd - retrying with a new IP would not fix that) -
+    /// matches python/paciolanevenue/client.py's own NotAnEventPage vs PerimeterXBlocked
+    /// distinction exactly (see PaciolanEvenueNotAnEventException's own doc comment for why this
+    /// used to be a plain InvalidOperationException, and the bug that caused).</summary>
     public async Task<EventPageData> GetEventAsync(string host, string seasonCd, string itemCd, CancellationToken ct = default)
     {
         var url = $"https://{host}/event/{seasonCd}/{itemCd}";
@@ -47,7 +50,7 @@ public sealed class PaciolanEvenueClient : IAsyncDisposable
                 var html = await _browser.ReadOuterHtmlAsync();
                 var ev = EventPageParser.Parse(html, host, seasonCd, itemCd);
                 if (!ev.IsEventPage)
-                    throw new InvalidOperationException(
+                    throw new PaciolanEvenueNotAnEventException(
                         $"paciolanevenue: {url} did not render a single event (context != 'eventdetailpage') - not a PerimeterX block, not retrying.");
 
                 _currentKey = (host, seasonCd, itemCd);

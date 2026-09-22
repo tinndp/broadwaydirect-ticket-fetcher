@@ -98,6 +98,26 @@ public class GroupingTests
     }
 
     [Fact]
+    public void Suffix_is_appended_onto_Level_when_a_venue_rule_produces_one()
+    {
+        // Regression test for a real bug found 2026-09-22 via a real Windows run: grouping.py's
+        // _make_listing appends the classify_section suffix onto Listing.level (e.g. "OK SIDES"),
+        // which SeatGrouper.MakeListing silently dropped before this fix. Invisible under
+        // SectionRules.Default() (both suffixes are "") - this test uses non-empty suffixes
+        // specifically to exercise the fixed path.
+        var rules = new SectionRules { CenterSeatThreshold = 100, SidesSuffix = "SIDES", CenterSuffix = "CENTER" };
+        var sides = SeatGrouper.GroupIntoListings(new[] { Seat("OK:107", "10", "8"), Seat("OK:107", "10", "10") }, rules);
+        var center = SeatGrouper.GroupIntoListings(new[] { Seat("OK:107", "10", "150"), Seat("OK:107", "10", "151") }, rules);
+
+        Assert.Single(sides);
+        Assert.Equal("OK SIDES", sides[0].Level);
+        Assert.Equal("107", sides[0].Section); // Section is untouched by the suffix
+
+        Assert.Single(center);
+        Assert.Equal("OK CENTER", center[0].Level);
+    }
+
+    [Fact]
     public void Singleton_run_is_forced_consecutive_even_in_an_oddeven_bucket()
     {
         var rules = new SectionRules { CenterSeatThreshold = 100, SidesSuffix = "SIDES", CenterSuffix = "CENTER" };

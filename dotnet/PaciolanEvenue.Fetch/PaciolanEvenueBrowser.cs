@@ -146,7 +146,20 @@ public sealed class PaciolanEvenueBrowser : IAsyncDisposable
     /// <summary>POLLS (not a fixed sleep) until the page no longer looks like a PerimeterX
     /// challenge, up to SettleMaxSeconds - same idea as the Python client's _settle(). Throws
     /// PaciolanEvenueBlockedException if a block marker is still present when the budget runs
-    /// out.</summary>
+    /// out.
+    ///
+    /// BUG FIXED 2026-09-22 (found via a real Windows run against a KNOWN-GOOD event, F26/F03 -
+    /// previously verified by the Python client): this used to `return` the INSTANT no block
+    /// marker was found. python/paciolanevenue/client.py's own _settle() does NOT do that - after
+    /// the marker check clears, it still calls `await self._page.wait_for_load_state("networkidle",
+    /// timeout=3000)` before returning, because PerimeterX clearing the challenge is itself often a
+    /// reload/redirect to the real page - reading the DOM in that split second can catch a blank or
+    /// still-navigating intermediate state (no block marker present, but not the real
+    /// __NEXT_DATA__-bearing page either), which is exactly what made EventPageParser see
+    /// `context != "eventdetailpage"` and report "not a PerimeterX block, not retrying" for a URL
+    /// that DOES exist. WebView2 has no networkidle primitive, so this approximates the same idea
+    /// by polling document.readyState for up to 3s once markers first clear (same budget as
+    /// Python's timeout=3000) before accepting the page as settled.</summary>
     private async Task SettleAsync()
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(_opt.SettleMaxSeconds);
@@ -154,7 +167,10 @@ public sealed class PaciolanEvenueBrowser : IAsyncDisposable
         {
             var html = await ReadStringAsync("document.documentElement.outerHTML");
             if (!BlockMarkers.Any(m => html.Contains(m, StringComparison.OrdinalIgnoreCase)))
+            {
+                await WaitForReadyStateAsync(TimeSpan.FromSeconds(3));
                 return;
+            }
             await Task.Delay(500);
         }
 
@@ -162,6 +178,29 @@ public sealed class PaciolanEvenueBrowser : IAsyncDisposable
         var matched = BlockMarkers.Where(m => finalHtml.Contains(m, StringComparison.OrdinalIgnoreCase)).ToList();
         throw new PaciolanEvenueBlockedException(
             $"page still shows a block marker after {_opt.SettleMaxSeconds}s: {string.Join(", ", matched)}");
+    }
+
+    /// <summary>Best-effort wait for document.readyState == "complete", up to <paramref name="timeout"/>.
+    /// Never throws - a timeout here just means the caller reads whatever HTML is there, same as
+    /// Python's own try/except around wait_for_load_state.</summary>
+    private async Task WaitForReadyStateAsync(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            string readyState;
+            try
+            {
+                readyState = await ReadStringAsync("document.readyState");
+            }
+            catch
+            {
+                readyState = ""; // mid-navigation (e.g. the challenge-clear reload) - keep polling
+            }
+            if (readyState == "complete")
+                return;
+            await Task.Delay(200);
+        }
     }
 
     private async Task NavigateAsync(string url, TimeSpan timeout)
@@ -285,4 +324,16 @@ public sealed class PaciolanEvenueBrowser : IAsyncDisposable
 public sealed class PaciolanEvenueBlockedException : Exception
 {
     public PaciolanEvenueBlockedException(string message) : base(message) { }
+}
+
+/// <summary>The page loaded fine (not a PerimeterX block) but did not render a single event
+/// (Next.js context != "eventdetailpage") - the itemCd is wrong/does not exist. Retrying with a
+/// fresh proxy session will NOT fix this, unlike PaciolanEvenueBlockedException. Matches
+/// python/paciolanevenue/parser.py's NotAnEventPage - kept distinct from
+/// PaciolanEvenueBlockedException specifically so PaciolanEvenue.Api can return 404 (bad input)
+/// instead of 502 (transient/blocked) - see that Program.cs and README's "Step 1" for the real
+/// bug this distinction fixed (2026-09-22).</summary>
+public sealed class PaciolanEvenueNotAnEventException : Exception
+{
+    public PaciolanEvenueNotAnEventException(string message) : base(message) { }
 }

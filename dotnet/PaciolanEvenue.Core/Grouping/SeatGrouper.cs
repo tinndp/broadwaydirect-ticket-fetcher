@@ -46,6 +46,13 @@ public static class SeatGrouper
 
         var buckets = new Dictionary<(string Label, string Row, string PriceLevelCd, string SeatingType, int Parity), List<SeatRow>>();
         var bucketOrder = new List<(string Label, string Row, string PriceLevelCd, string SeatingType, int Parity)>();
+        // Suffix per bucket, keyed the same way - needed because MakeListing appends it onto
+        // ListingGroup.Level (e.g. "OK SIDES"), matching grouping.py's _make_listing exactly (see
+        // that fix, 2026-09-22). Currently a no-op in practice since SectionRules' default suffixes
+        // are both "" (see SectionRules's own doc comment), but was silently dropped before this
+        // fix - would have diverged from the Python port the moment real per-venue suffixes are
+        // configured.
+        var bucketSuffix = new Dictionary<(string Label, string Row, string PriceLevelCd, string SeatingType, int Parity), string>();
         var ungrouped = new List<SeatRow>();
 
         foreach (var s in availableSeats)
@@ -67,6 +74,7 @@ public static class SeatGrouper
                 list = new List<SeatRow>();
                 buckets[key] = list;
                 bucketOrder.Add(key);
+                bucketSuffix[key] = suffix;
             }
             list.Add(s);
         }
@@ -76,6 +84,7 @@ public static class SeatGrouper
         foreach (var key in bucketOrder)
         {
             var group = buckets[key];
+            var suffix = bucketSuffix[key];
             var step = key.SeatingType == "OddEven" ? 2 : 1;
             var sorted = group.OrderBy(s => s.SeatNum!.Value).ToList();
 
@@ -90,11 +99,11 @@ public static class SeatGrouper
                 }
                 else
                 {
-                    listings.Add(MakeListing(key.Row, key.PriceLevelCd, key.SeatingType, run));
+                    listings.Add(MakeListing(suffix, key.Row, key.PriceLevelCd, key.SeatingType, run));
                     run = new List<SeatRow> { cur };
                 }
             }
-            listings.Add(MakeListing(key.Row, key.PriceLevelCd, key.SeatingType, run));
+            listings.Add(MakeListing(suffix, key.Row, key.PriceLevelCd, key.SeatingType, run));
         }
 
         foreach (var s in ungrouped)
@@ -114,17 +123,20 @@ public static class SeatGrouper
         return listings;
     }
 
-    private static ListingGroup MakeListing(string row, string priceLevelCd, string seatingType, List<SeatRow> run)
+    private static ListingGroup MakeListing(string suffix, string row, string priceLevelCd, string seatingType, List<SeatRow> run)
     {
         // A run of exactly one seat is always reported as Consecutive, even if it landed in an
         // OddEven bucket - matches Broadway's MakeListing (OddEven only means something for more
         // than one seat).
         if (run.Count <= 1) seatingType = "Consecutive";
 
-        // Every seat in `run` shares the same bucket, hence the same Level/Section.
+        // Every seat in `run` shares the same bucket, hence the same Level/Section. Level carries
+        // the grouping-rule suffix too (e.g. "OK SIDES") - matches grouping.py's _make_listing:
+        // `label = f"{level} {suffix}".strip() if suffix else level`.
+        var level = suffix.Length > 0 ? $"{run[0].Level} {suffix}" : run[0].Level;
         return new ListingGroup
         {
-            Level = run[0].Level,
+            Level = level,
             Section = run[0].Section,
             Row = row,
             PriceLevelCd = priceLevelCd,
