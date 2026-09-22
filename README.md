@@ -41,6 +41,24 @@ Two implementations live in this repo:
   build and pass on any OS; `StubHub.Fetch` (WebView2 for the DataDome
   bypass) is **Windows-only** and not yet run end-to-end - same status as
   `BroadwayDirect.Fetch`.
+- **[`python/paciolanevenue/`](python/paciolanevenue/README.md)** - a third
+  source, Paciolan eVenue (`*.evenue.net`). Different bot wall again
+  (PerimeterX) and a different page shape (Next.js `__NEXT_DATA__` +
+  a seat-availability JSON API, not a single inventory blob), so PerimeterX
+  bypass here is retry-with-a-fresh-proxy-session rather than a single-pass
+  poll - see `EVENUE_PERIMETERX_FINDINGS.md` in that folder. Mirrors to
+  MongoDB in the REAL `.NET` Rowing bot's shape (one shared collection per
+  datasource, not the `raw_events`/`cleaned_events` shape above), since its
+  intended destination is that Rowing integration - see that file's own
+  module docstring. **Verified working end-to-end** (2/2 real runs against
+  Purdue/Oklahoma, one only on retry).
+- **[`dotnet/` `PaciolanEvenue.*`](dotnet/README_PACIOLANEVENUE_DOTNET.md)** -
+  the .NET 8 port of `python/paciolanevenue/`, same split as `StubHub.*`
+  above. `PaciolanEvenue.Core` + `PaciolanEvenue.Tests` build and pass on any
+  OS; `PaciolanEvenue.Fetch`/`.Api` (WebView2 for the PerimeterX bypass) are
+  **Windows-only** and confirmed to fail to even start on macOS (missing
+  `Microsoft.WindowsDesktop.App` runtime) - not yet run end-to-end on
+  Windows.
 
 See each subfolder's README for setup, usage, and scope/limitations (in
 particular: this project stops at fetching + grouping + storing data, it

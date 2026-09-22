@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Does NOT reuse BroadwayDirect.Core.Storage.MongoStore's raw_events/cleaned_events shape -
+       PaciolanEvenueInventoryStore below writes the shape the REAL .NET Rowing bot uses instead
+       (see its own doc comment). Does reuse BroadwayDirect.Core.Proxy.ProxyUri (no eVenue-specific
+       proxy parsing needed). -->
+  <ItemGroup>
+    <ProjectReference Include="..\BroadwayDirect.Core\BroadwayDirect.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" Version="2.29.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,11 @@
+[
+  [
+    ["E:105", "10", "8", "1", "O", null, null, null, 1, 0],
+    ["E:105", "10", "9", "1", "O", null, null, null, 1, 0],
+    ["E:105", "10", "10", "1", "O", null, null, null, 0, 0],
+    ["E:106", "10", "8", "1", "O", null, null, null, 1, 0],
+    ["W:200", "3", "1", "2", "X", "18", 1, null, 0, 0],
+    ["GA", "GEN", "INFANT", "2", "O", null, null, null, 1, 0]
+  ],
+  ["LEVELSECTIONCD", "ROWCD", "SEATCD", "PRICELEVELCD", "SEATSTATUS", "MARKER_ID", "SEAT_MARKER_ACTIVE", "SLP_PRICE", "AVAILABLE", "HIDDEN"]
+]

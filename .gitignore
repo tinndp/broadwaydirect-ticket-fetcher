@@ -4,3 +4,6 @@
 __pycache__/
 *.pyc
 proxylist.txt
+python/paciolanevenue/_local_proxy.py
+python/output/
+python/PaciolanEvenue_Demo_Export.xlsx

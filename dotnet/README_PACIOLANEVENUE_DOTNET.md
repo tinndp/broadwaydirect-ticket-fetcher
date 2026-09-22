@@ -1,0 +1,157 @@
+# PaciolanEvenue .NET (port from Python)
+
+.NET 8 port of [`../python/paciolanevenue/`](../python/paciolanevenue/README.md). Mirrors the way
+`dotnet/` ports the other two sites (README_DOTNET.md / README_STUBHUB_DOTNET.md): same project
+split, added to the same `BroadwayDirect.sln`, reusing `BroadwayDirect.Core.Proxy.ProxyUri` and
+`BroadwayDirect.Fetch.WebView2Host` only - everything else (models, parsing, grouping, the
+PerimeterX browser, persistence) is its own, since eVenue's page/API shape and bot wall are both
+different from Broadway/StubHub.
+
+**IMPORTANT - `PaciolanEvenue.Fetch`/`PaciolanEvenue.Api` (WebView2) were written on macOS and have
+NOT been run on real Windows.** They only build-check off-Windows (`EnableWindowsTargeting=true`);
+confirmed 2026-09-22 that `dotnet run` on macOS fails immediately with "No frameworks were found"
+(`Microsoft.WindowsDesktop.App` has no macOS build - this is not a code bug, there is nothing to
+fix here short of a Windows machine). You MUST build + run the API on Windows and report back -
+same open risk as `BroadwayDirect.Fetch`/`StubHub.Fetch`.
+
+`PaciolanEvenue.Core` (parsing/grouping/hash logic) and `PaciolanEvenue.Tests` DO run on macOS/Linux
+- see "Testing" below.
+
+## Structure
+
+```
+PaciolanEvenue.Core/    - Models (EventPageData, PriceLevel, SeatRow, ListingGroup,
+                          PaciolanEvenueListing), Parsing/EventPageParser (__NEXT_DATA__ ->
+                          EventPageData, ported from the .NET 8 demo at
+                          ~/Desktop/crawler-playbook/PaciolanEvenue/PaciolanEvenueCrawler/,
+                          Newtonsoft -> System.Text.Json), Parsing/SeatAvailabilityParser,
+                          Grouping/SeatGrouper (same algorithm as BroadwayDirect.Core's, inert
+                          SectionRules default), Storage/ListingIdentity (djb2 hash, ported
+                          byte-for-byte from the real .NET Rowing bot's ListingIdentity.cs) +
+                          Storage/PaciolanEvenueInventoryStore (Mongo - see "Mongo persistence").
+                          Builds + tests on macOS/Linux.
+PaciolanEvenue.Fetch/   - PaciolanEvenueBrowser (PerimeterX block-marker poll, brand-new WebView2
+                          environment + fresh proxy {SESSIONID} on every open - NOT session reuse,
+                          see "Notable differences" below) + PaciolanEvenueClient (retry
+                          orchestration) + PaciolanEvenueFetchOptions. Windows-only, NOT yet run.
+                          Reuses BroadwayDirect.Fetch.WebView2Host (the STA pump) only.
+PaciolanEvenue.Api/     - ASP.NET Core Minimal API: POST /api/seatavailability. Same request
+                          contract as python/paciolanevenue/api.py.
+PaciolanEvenue.Tests/   - xUnit: EventPageParserTests, SeatAvailabilityParserTests, GroupingTests,
+                          ListingIdentityTests (cross-checked against the Python port's own test
+                          vectors). 22/22 green on macOS.
+```
+
+## Step 1 (REQUIRED first): confirm WebView2 gets past PerimeterX
+
+On a **real Windows machine**, start the API (below) and call it with a real event page URL:
+
+```bash
+curl -X POST http://localhost:5283/api/seatavailability ^
+  -H "Content-Type: application/json" ^
+  -d "{\"eventId\":\"F06\",\"url\":\"https://purduesports.evenue.net/event/F26/F06\"}"
+```
+
+Expected: an Edge (WebView2) window appears off-screen, PaciolanEvenueBrowser polls for a
+PerimeterX block marker to clear (up to `SettleMaxSeconds`, default 15s), then the API returns
+`{eventId, sourceEventId, event, priceLevels, listings, coverage}`, no 502. Per
+`EVENUE_PERIMETERX_FINDINGS.md`, one attempt is NOT expected to reliably pass - the retry loop
+(`Retries`, default 4) opens a brand-new WebView2 environment with a fresh proxy `{SESSIONID}` each
+time, which is what actually got through in the Python package's real runs (2/2 successful, one of
+them only on the 3rd retry). A 502 after all `Retries` are exhausted with a PerimeterX message in
+the detail is expected occasionally, not necessarily a bug - see that document before concluding
+the technique doesn't work.
+
+## Running the API
+
+```bash
+cd PaciolanEvenue.Api
+dotnet run
+```
+
+Listens on `http://localhost:5283` (see `Properties/launchSettings.json`). Swagger UI:
+`http://localhost:5283/swagger`.
+
+### `POST /api/seatavailability`
+
+Body: `{ eventId, url, proxy? }`
+
+| field | default | meaning |
+|---|---|---|
+| `eventId` | - | must equal the `itemCd` segment parsed from `url`, or 400 |
+| `url` | - | the event page: `https://{host}/event/{seasonCd}/{itemCd}` |
+| `proxy` | none | `scheme://[user:pass@]host:port` (may contain the literal `{SESSIONID}` placeholder in the username - a fresh id is substituted on every WebView2 open) or raw `host:port:user:pass` |
+
+Response: `{ eventId, sourceEventId, event, priceLevels[], listings[], coverage }` -
+`sourceEventId` = `{host}:{seasonCd}:{itemCd}` (matches the Mongo document's `SourceEventId` and
+the `.NET` Rowing bot's `ListingIdentity.BuildPaciolanEvenue` preimage). `coverage` is the same
+`rows=… available=… capacityMatch=… availableMatch=…` note the Python/`.NET` Rowing sides produce.
+
+### Mongo persistence (env vars, all optional)
+
+```
+MONGO_URI   default "mongodb://localhost:27017"
+MONGO_DB    default "broadwaydirect"
+```
+
+**Not a mirror - the only place PaciolanEvenue listing data lands**, matching the REAL `.NET`
+Rowing bot (`ETECH.Application.MarkAutomation/Rowing/PaciolanEvenue/`, confirmed 2026-09-22 against
+`SettingFactory.GetIntegrationNewInventoryCollectionName` + every reference to it in that
+codebase - NOT the per-event-collection convention `StubHubInventoryStore` above uses, which was
+never cross-checked against StubHub's own real Rowing bot):
+
+- **one SHARED collection for the whole datasource**, `PaciolanEvenue_Inventories_NEW` (no event
+  id in the name), indexed on `SourceEventId`;
+- each request **deletes only that event's documents** (`DeleteMany({SourceEventId: ...})`) then
+  inserts the fresh set - never drops or wipes the whole collection, since other events' documents
+  live there too;
+- one document per listing (`PaciolanEvenueListing` - PascalCase fields matching
+  `IntegrationTemplateSourceInventory`/`PaciolanEvenueSourceInventory`), `_id` =
+  `ListingIdentity.BuildPaciolanEvenue(sourceEventId, level, section, row, lowSeat, highSeat)`
+  (Level+Section combined in the fingerprint - Section alone would collide two sections sharing a
+  level);
+- `Zone`/`PriceClass` come from the matched price level's `PL_DESC`/`PT`; `Price`/`DisplayPrice` =
+  the Public ("P") price level's `PRICE` (else the first available type), divided by 100 (~confirmed
+  cents, not 100% - see `python/paciolanevenue/README.md` "Open questions").
+
+If Mongo is unreachable or the write fails the request returns **500** (the fetch succeeded but the
+data is not persisted) - it is not swallowed, same as StubHub.Api/TicketMaster.Api. Fetch tuning
+defaults live in `PaciolanEvenue.Api/appsettings.json` under `"Fetch"`.
+
+## Notable differences from the Python version
+
+- **Retry = brand-new WebView2 environment, not session reuse.** Unlike
+  `BroadwayDirect.Fetch.ProxyEnvironmentPool` (Cloudflare - one warmed session reused across calls)
+  and `StubHub.Fetch.DataDomeBrowser` (DataDome - one persistent control, cookies cleared per
+  event), `PaciolanEvenueBrowser.OpenFreshAsync` disposes any existing control/environment and
+  creates an entirely new one (new profile dir, new proxy `{SESSIONID}`) every time - matching
+  `python/paciolanevenue/client.py`'s own `_open()` exactly. This is the literal
+  "retry-with-fresh-proxy-session" finding from `EVENUE_PERIMETERX_FINDINGS.md`, not a stealth
+  trick layered on top - PerimeterX bypass here is not guaranteed on any single attempt.
+- **Block detection is TEXT MARKERS, not a named cookie** - `PaciolanEvenueBrowser` polls
+  `document.documentElement.outerHTML` for `BlockMarkers` (`"Access to this page has been denied"`,
+  `"px-captcha"`, `"Please verify you are a human"`), same list as the Python client and the
+  `.NET` Rowing bot's `PaciolanEvenueFetchClient`, instead of Cloudflare's `cf_clearance` cookie
+  check.
+- **Reads page HTML directly, not via fetch()/postMessage** - `ReadOuterHtmlAsync` is a synchronous
+  script (`ExecuteScriptAsync` marshals its return value correctly); only the seat-availability API
+  call goes through the postMessage workaround (`FetchInPageAsync`), since that one is async/Promise-based.
+- **Proxy is per instance, not per call**: one `PaciolanEvenueClient` (one `WebView2Host`) per proxy
+  *template* (may contain `{SESSIONID}`), pooled in `Program.cs` - same as
+  `python/paciolanevenue/api.py`'s proxy handling. Each retry inside that client still gets a fresh
+  substituted session id.
+- **No `headless` switch** - always a real (off-screen) window; PerimeterX blocks headless, as the
+  Python side already found.
+
+## Testing
+
+```bash
+dotnet test PaciolanEvenue.Tests/PaciolanEvenue.Tests.csproj
+# or the whole solution (BroadwayDirect + StubHub + TicketMaster + PaciolanEvenue):
+dotnet test BroadwayDirect.sln
+```
+
+`PaciolanEvenue.Tests` runs green 22/22 on macOS (Core only - no WebView2), cross-checked against
+fixtures built from the documented recon field names (RECON.md) and against the Python port's own
+`ListingIdentity` test vectors. The solution total is 75/75 (17 BroadwayDirect + 13 TicketMaster +
+23 StubHub + 22 PaciolanEvenue).
