@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Cross-platform (macOS/Linux/Windows) sibling of PaciolanEvenue.Fetch (WebView2,
+       Windows-only). Added 2026-09-22 per explicit request: get the .NET port actually crawling
+       real data on macOS now, defer the WebView2/Windows path (already written, not yet run) to
+       later. Uses Microsoft.Playwright instead of WebView2 - same idea as the ORIGINAL .NET 8 demo
+       at ~/Desktop/crawler-playbook/PaciolanEvenue/PaciolanEvenueCrawler/PaciolanBrowser.cs, which
+       predates the retry-with-fresh-proxy-session discovery and the soft-block (missing
+       __NEXT_DATA__, no text marker) discovery - both are ported in here from what was learned
+       building and real-testing PaciolanEvenue.Fetch (WebView2) and the Python client. -->
+  <ItemGroup>
+    <ProjectReference Include="..\PaciolanEvenue.Core\PaciolanEvenue.Core.csproj" />
+    <ProjectReference Include="..\BroadwayDirect.Core\BroadwayDirect.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright" Version="1.48.0" />
+  </ItemGroup>
+
+</Project>

@@ -7,15 +7,19 @@ split, added to the same `BroadwayDirect.sln`, reusing `BroadwayDirect.Core.Prox
 PerimeterX browser, persistence) is its own, since eVenue's page/API shape and bot wall are both
 different from Broadway/StubHub.
 
-**IMPORTANT - `PaciolanEvenue.Fetch`/`PaciolanEvenue.Api` (WebView2) were written on macOS and have
-NOT been run on real Windows.** They only build-check off-Windows (`EnableWindowsTargeting=true`);
-confirmed 2026-09-22 that `dotnet run` on macOS fails immediately with "No frameworks were found"
-(`Microsoft.WindowsDesktop.App` has no macOS build - this is not a code bug, there is nothing to
-fix here short of a Windows machine). You MUST build + run the API on Windows and report back -
-same open risk as `BroadwayDirect.Fetch`/`StubHub.Fetch`.
+**`PaciolanEvenue.Fetch`/`PaciolanEvenue.Api` (WebView2) are Windows-only** and, as of 2026-09-22,
+still not proven working end-to-end there (confirmed `dotnet run` fails to even start on macOS -
+"No frameworks were found", `Microsoft.WindowsDesktop.App` has no macOS build; a real Windows run
+against a known-good event also surfaced 2 real bugs, both fixed - see git history / this file's
+own notes below).
 
-`PaciolanEvenue.Core` (parsing/grouping/hash logic) and `PaciolanEvenue.Tests` DO run on macOS/Linux
-- see "Testing" below.
+**Use `PaciolanEvenue.Fetch.Playwright` + `PaciolanEvenue.Cli` instead for macOS/Linux** -
+added 2026-09-22 specifically to get the .NET port actually crawling real data without a Windows
+machine, deferring WebView2/`.Api` to later. **Real-tested and confirmed working**: Oklahoma F26/F03
+via a residential proxy - blocked on the first event-page attempt and 3 of 4 seat-availability
+attempts, succeeded on retry with a fresh session each time (same pattern the Python client proved),
+`capacityMatch=yes(80395) availableMatch=yes(1054)`, 130 listings written to
+`PaciolanEvenue.Cli/output/`. See "Cross-platform crawl (Playwright)" below.
 
 ## Structure
 
@@ -30,19 +34,53 @@ PaciolanEvenue.Core/    - Models (EventPageData, PriceLevel, SeatRow, ListingGro
                           byte-for-byte from the real .NET Rowing bot's ListingIdentity.cs) +
                           Storage/PaciolanEvenueInventoryStore (Mongo - see "Mongo persistence").
                           Builds + tests on macOS/Linux.
+PaciolanEvenue.Fetch.Playwright/ - PaciolanEvenuePlaywrightBrowser/Client - Microsoft.Playwright
+                          (cross-platform), the PROVEN path (see above). Same retry/soft-block
+                          logic as PaciolanEvenue.Fetch, ported back from what real testing found.
+PaciolanEvenue.Cli/     - Manual-test console app, mirrors python/paciolanevenue/cli.py exactly
+                          (args, output shape, exit codes). No Mongo write - prints + writes
+                          event.json/listings.json under output/{host}/{season}/{item}/.
 PaciolanEvenue.Fetch/   - PaciolanEvenueBrowser (PerimeterX block-marker poll, brand-new WebView2
                           environment + fresh proxy {SESSIONID} on every open - NOT session reuse,
                           see "Notable differences" below) + PaciolanEvenueClient (retry
-                          orchestration) + PaciolanEvenueFetchOptions. Windows-only, NOT yet run.
+                          orchestration) + PaciolanEvenueFetchOptions. Windows-only, NOT yet
+                          confirmed working end-to-end there (build-checks clean on macOS only).
                           Reuses BroadwayDirect.Fetch.WebView2Host (the STA pump) only.
 PaciolanEvenue.Api/     - ASP.NET Core Minimal API: POST /api/seatavailability. Same request
                           contract as python/paciolanevenue/api.py.
 PaciolanEvenue.Tests/   - xUnit: EventPageParserTests, SeatAvailabilityParserTests, GroupingTests,
                           ListingIdentityTests (cross-checked against the Python port's own test
-                          vectors). 22/22 green on macOS.
+                          vectors). 23/23 green on macOS.
 ```
 
-## Step 1 (REQUIRED first): confirm WebView2 gets past PerimeterX
+## Cross-platform crawl (Playwright) - works on macOS/Linux now
+
+```bash
+cd PaciolanEvenue.Cli
+# first run only - installs a Chromium build into ~/Library/Caches/ms-playwright (macOS) or the
+# platform equivalent, via the Microsoft.Playwright.CLI dotnet tool:
+dotnet tool install --global Microsoft.Playwright.CLI
+export PATH="$PATH:$HOME/.dotnet/tools"   # if not already on PATH
+playwright install chromium
+
+export PACIOLAN_PROXY_HOST=...
+export PACIOLAN_PROXY_PORT=...
+export PACIOLAN_PROXY_USER="...-session-{SESSIONID}"   # literal {SESSIONID} - substituted per retry
+export PACIOLAN_PROXY_PASS=...
+dotnet run --project . -- --host soonersports.evenue.net --season F26 --item F03
+```
+
+`--headless` runs Chromium invisibly (default is a real, visible-but-off-Playwright's-own-window
+browser - PerimeterX blocks headless, same reason every other client in this repo defaults to
+`headless=False`/`false`). `--retries N` (default 4), `--out DIR` (default `output/`). Writes
+`event.json`/`listings.json` under `{out}/{host}/{season}/{item}/` - **not committed**
+(`dotnet/.gitignore` excludes `PaciolanEvenue.Cli/output/`).
+
+No Mongo write from the CLI (matches `python/paciolanevenue/cli.py` - manual test only). Wire up
+`PaciolanEvenueInventoryStore` yourself (see `PaciolanEvenue.Api/Program.cs`'s `GetStore()`/
+`BuildDocs()` for the exact shape) if you need this path to persist.
+
+## Step 1 (REQUIRED first, WebView2/.Api only): confirm WebView2 gets past PerimeterX
 
 On a **real Windows machine**, start the API (below) and call it with a real event page URL:
 
@@ -162,7 +200,7 @@ dotnet test PaciolanEvenue.Tests/PaciolanEvenue.Tests.csproj
 dotnet test BroadwayDirect.sln
 ```
 
-`PaciolanEvenue.Tests` runs green 22/22 on macOS (Core only - no WebView2), cross-checked against
+`PaciolanEvenue.Tests` runs green 23/23 on macOS (Core only - no WebView2), cross-checked against
 fixtures built from the documented recon field names (RECON.md) and against the Python port's own
-`ListingIdentity` test vectors. The solution total is 75/75 (17 BroadwayDirect + 13 TicketMaster +
-23 StubHub + 22 PaciolanEvenue).
+`ListingIdentity` test vectors. The solution total is 76/76 (17 BroadwayDirect + 13 TicketMaster +
+23 StubHub + 23 PaciolanEvenue).

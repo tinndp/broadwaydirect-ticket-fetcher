@@ -48,10 +48,31 @@ public sealed class PaciolanEvenueClient : IAsyncDisposable
             {
                 await _browser.OpenFreshAsync(url);
                 var html = await _browser.ReadOuterHtmlAsync();
+
+                // Real bug found 2026-09-22 via a real Windows run against a KNOWN-GOOD event
+                // (Oklahoma F26/F03): PerimeterX has a THIRD response tier beyond "hard block" (one
+                // of BlockMarkers, caught by SettleAsync) and "real page" (has __NEXT_DATA__) - a
+                // soft-block page with the real <title> (so it doesn't look empty/wrong) but the
+                // Next.js __NEXT_DATA__ island stripped entirely, no block marker text either. That
+                // combination - correct title, zero trace of __NEXT_DATA__ - is what PerimeterX
+                // does, not a legitimate evenue.net response shape (a real page always has it, per
+                // RECON.md and every prior successful run). Treat a MISSING __NEXT_DATA__ tag as
+                // suspected-blocked and retry with a fresh session, same as a hard block. This is
+                // distinct from "found __NEXT_DATA__ but context != 'eventdetailpage'" (a page that
+                // IS real Next.js output, just genuinely not a single-event page, e.g. wrong
+                // itemCd) - that case still does not retry, see below.
+                if (!html.Contains("__NEXT_DATA__", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new PaciolanEvenueBlockedException(
+                        $"paciolanevenue: {url} has no __NEXT_DATA__ at all - suspected PerimeterX soft-block " +
+                        $"(real title, stripped content). {DescribeHtmlForDiagnosis(html)}");
+                }
+
                 var ev = EventPageParser.Parse(html, host, seasonCd, itemCd);
                 if (!ev.IsEventPage)
                     throw new PaciolanEvenueNotAnEventException(
-                        $"paciolanevenue: {url} did not render a single event (context != 'eventdetailpage') - not a PerimeterX block, not retrying.");
+                        $"paciolanevenue: {url} did not render a single event (context != 'eventdetailpage') - " +
+                        $"not a PerimeterX block, not retrying. {DescribeHtmlForDiagnosis(html)}");
 
                 _currentKey = (host, seasonCd, itemCd);
                 _currentEventUrl = url;
@@ -123,6 +144,34 @@ public sealed class PaciolanEvenueClient : IAsyncDisposable
         }
 
         throw new PaciolanEvenueBlockedException($"seat-availability gave up after {_opt.Retries} attempts: {lastErr}");
+    }
+
+    /// <summary>Diagnostic-only (added 2026-09-22 after a real Windows run kept reporting this
+    /// error for a KNOWN-GOOD event URL, F26/F03, even after the SettleAsync readyState fix) - puts
+    /// enough of the actually-retrieved HTML into the exception message to tell apart the possible
+    /// causes without guessing blind a third time: an unrecognized PerimeterX block page (no
+    /// __NEXT_DATA__ at all, or a &lt;title&gt; that doesn't look like evenue.net), a real
+    /// evenue.net page whose __NEXT_DATA__.props.pageProps.context is something other than
+    /// "eventdetailpage" (a genuine site-shape difference from recon), or an empty/near-empty page
+    /// (navigation raced ahead of rendering despite the readyState wait). Never throws.</summary>
+    private static string DescribeHtmlForDiagnosis(string html)
+    {
+        try
+        {
+            html ??= "";
+            var titleMatch = System.Text.RegularExpressions.Regex.Match(html, "<title[^>]*>([^<]*)</title>",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var title = titleMatch.Success ? titleMatch.Groups[1].Value.Trim() : "(no <title>)";
+            var hasNextData = html.IndexOf("__NEXT_DATA__", StringComparison.OrdinalIgnoreCase) >= 0;
+            var contextMatch = System.Text.RegularExpressions.Regex.Match(html, "\"context\"\\s*:\\s*\"([^\"]*)\"");
+            var context = contextMatch.Success ? contextMatch.Groups[1].Value : "(not found)";
+            var snippet = html.Length > 300 ? html[..300] : html;
+            return $"Diag: title={title} hasNextData={hasNextData} context={context} len={html.Length} head={snippet}";
+        }
+        catch (Exception e)
+        {
+            return $"Diag: (failed to describe HTML: {e.Message})";
+        }
     }
 
     public async ValueTask DisposeAsync()

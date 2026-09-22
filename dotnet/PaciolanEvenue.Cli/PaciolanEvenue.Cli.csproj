@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PaciolanEvenue.Cli</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- Cross-platform manual-test CLI, same role as python/paciolanevenue/cli.py: fetch one event
+       via PaciolanEvenuePlaywrightClient, print price_levels/listings/coverage, optionally write to
+       Mongo. No server, no HTTP - the fastest way to prove the .NET port crawls real data on
+       macOS before touching PaciolanEvenue.Fetch/.Api (WebView2, Windows-only). -->
+  <ItemGroup>
+    <ProjectReference Include="..\PaciolanEvenue.Core\PaciolanEvenue.Core.csproj" />
+    <ProjectReference Include="..\PaciolanEvenue.Fetch.Playwright\PaciolanEvenue.Fetch.Playwright.csproj" />
+    <ProjectReference Include="..\BroadwayDirect.Core\BroadwayDirect.Core.csproj" />
+  </ItemGroup>
+
+</Project>
