@@ -73,7 +73,6 @@ public class EventPageParserTests
         Assert.Equal((int?)0, ev.MinQty);
         Assert.Equal((int?)8, ev.MaxQty);
         Assert.Equal((int?)0, ev.MultipleQty);
-        Assert.Equal((int?)0, ev.StudentMaxQty);
     }
 
     [Fact]

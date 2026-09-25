@@ -34,7 +34,10 @@ in `tests/fixtures/paciolan_rules/` (Royce Hall, Kansas S26/06, Michigan V07 H:1
 5. **Lettered codes:** the number is the seat number, and only seats with the same letters are grouped. Codes with no digits: one listing per (section, row, price level) without seat numbers.
 6. `Seating` is only `Consecutive` or `Odd/Even` (the POS vocabulary). `"Ungrouped"` is gone.
 7. **Listing id:** `Level:Section_Row_Low_High`, plus `_{SeatTag}` only when there is a tag (`W`, `PL6`, `NC6`). Plain numbered seats keep their old id. `SeatTag` is stored in the document so Rowing's `ListingIdentity.ForIntegrationListing` rebuilds the same id.
-8. **New verbatim document fields:** `SeatingType` (`R`/`G`), `SeatStatus` (the seats' SEATSTATUS codes), `SeatTag`.
+8. **New document fields:**
+   - `SeatStatusType`: the standard HOLDCODES type of the seats' statuses — `available`, `accessible` (wheelchair / ADA / companion) or `limited` (obstructed view). SEATSTATUS codes themselves are not stored, because each school gives the same code a different meaning (`c` = Camera at one school, Companion Seat at another).
+   - `SeatTag`: part of the id.
+   - SEATING_TYPES R/G is not stored either: a GA listing is already recognisable from `Row = "GA"`, `Level = "GA"` and no seat numbers.
 
 ## Result on the 65 events with prices saved
 

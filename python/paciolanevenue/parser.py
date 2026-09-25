@@ -70,7 +70,6 @@ def parse_event_page(html: str, host: str, season_cd: str, item_cd: str) -> tupl
         min_qty=ev_raw.get("MINQTY"),
         max_qty=ev_raw.get("MAXQTY"),
         multiple_qty=ev_raw.get("MULTIPLEQTY"),
-        student_max_qty=ev_raw.get("STUDENTMAXQTY"),
         fac_cd=str(ev_raw.get("FAC_CD") or ""),
         configuration_cd=str(ev_raw.get("CONFIGURATIONCD") or ""),
         base_map_id=str(props.get("baseMapId") or ""),
@@ -90,7 +89,6 @@ def parse_event_page(html: str, host: str, season_cd: str, item_cd: str) -> tupl
             plpt_min_qty=pl.get("PLPT_MINQTY"),
             plpt_max_qty=pl.get("PLPT_MAXQTY"),
             plpt_multiple=pl.get("PLPT_MULTIPLE"),
-            plpt_student_max_qty=pl.get("PLPT_STUDENTMAXQTY"),
         ))
 
     return event, price_levels

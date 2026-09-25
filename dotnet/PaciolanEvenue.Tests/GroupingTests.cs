@@ -159,10 +159,10 @@ public class GroupingTests
             Assert.Equal(p.GetProperty("Row").GetString(), l.Row);
             Assert.Equal(p.GetProperty("Quantity").GetInt32(), l.Quantity);
             Assert.Equal(p.GetProperty("Seating").GetString(), l.SeatingType);
-            Assert.Equal(p.GetProperty("PriceLevelCd").GetString(), l.PriceLevelCd);
-            Assert.Equal(p.GetProperty("SeatKeys").GetString(), string.Join(",", l.SeatKeys));
-            Assert.Equal(p.GetProperty("SeatingType").ValueKind == JsonValueKind.Null ? "" : p.GetProperty("SeatingType").GetString(), l.SeatingTypeCd);
-            Assert.Equal(p.GetProperty("SeatStatus").ValueKind == JsonValueKind.Null ? "" : p.GetProperty("SeatStatus").GetString(), string.Join(",", l.SeatStatuses));
+            Assert.Equal(p.GetProperty("PriceLevelId").GetInt64(), long.Parse(l.PriceLevelCd)); // PriceLevelId = PRICELEVELCD as a number
+            Assert.Equal(p.GetProperty("SeatKeys").ValueKind == JsonValueKind.Null ? "" : p.GetProperty("SeatKeys").GetString(), string.Join(",", l.SeatKeys));
+            Assert.Equal(p.GetProperty("SeatStatusType").ValueKind == JsonValueKind.Null ? null : p.GetProperty("SeatStatusType").GetString(),
+                SeatGrouper.SeatStatusType(l, ev));
         }
     }
 

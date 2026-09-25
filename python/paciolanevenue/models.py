@@ -28,11 +28,10 @@ class Event:
     total_capacity_ssr: Optional[int] = None
     available_ssr: Optional[int] = None
     # Event-level purchase-quantity rules, verbatim from the SSR record (None = not sent;
-    # 0 is kept as 0 - eVenue's own value, not interpreted here).
+    # the Mongo document stores 0 as null too - eVenue's "not set", see mongo_inventory._qty).
     min_qty: Optional[int] = None           # MINQTY
     max_qty: Optional[int] = None           # MAXQTY
     multiple_qty: Optional[int] = None      # MULTIPLEQTY
-    student_max_qty: Optional[int] = None   # STUDENTMAXQTY
     # What the maps_eventMap GraphQL query needs (all read off the SSR / page props).
     fac_cd: str = ""                        # FAC_CD
     configuration_cd: str = ""              # CONFIGURATIONCD
@@ -64,7 +63,6 @@ class PriceLevel:
     plpt_min_qty: Optional[int] = None          # PLPT_MINQTY
     plpt_max_qty: Optional[int] = None          # PLPT_MAXQTY
     plpt_multiple: Optional[int] = None         # PLPT_MULTIPLE
-    plpt_student_max_qty: Optional[int] = None  # PLPT_STUDENTMAXQTY
 
 
 @dataclass

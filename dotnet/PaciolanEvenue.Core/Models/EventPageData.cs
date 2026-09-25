@@ -40,11 +40,10 @@ public class EventPageData
     public int? AvailableFromSsr { get; set; }
 
     /// <summary>Event-level purchase-quantity rules, verbatim from SSR (MINQTY / MAXQTY /
-    /// MULTIPLEQTY / STUDENTMAXQTY). Null = not sent; 0 is kept as 0, not interpreted.</summary>
+    /// MULTIPLEQTY). Null = not sent (the Mongo document also stores 0 as null - eVenue's "not set").</summary>
     public int? MinQty { get; set; }
     public int? MaxQty { get; set; }
     public int? MultipleQty { get; set; }
-    public int? StudentMaxQty { get; set; }
 
     /// <summary>What the maps_eventMap GraphQL query needs: FAC_CD, CONFIGURATIONCD, props.baseMapId.</summary>
     public string FacCd { get; set; } = "";

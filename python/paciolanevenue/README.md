@@ -70,10 +70,12 @@ The crawler stores what eVenue sends and computes nothing. From the event page S
 
 | Mongo field | Source | soonersports F26/F03 |
 |---|---|---|
-| `MinQuantity` / `MaxQuantity` / `QuantityIncrement` / `StudentMaxQuantity` | event `MINQTY` / `MAXQTY` / `MULTIPLEQTY` / `STUDENTMAXQTY` | 0 / 8 / 0 / 0 |
-| `PlptMinQuantity` / `PlptMaxQuantity` / `PlptMultiple` / `PlptStudentMaxQuantity` | `PLPT_MINQTY` / `PLPT_MAXQTY` / `PLPT_MULTIPLE` / `PLPT_STUDENTMAXQTY` of the same `PL_PT_PRICES` row the `Price` comes from | 0 / 0 / 0 / 0 |
+| `MinQuantity` / `MaxQuantity` / `QuantityIncrement` | event `MINQTY` / `MAXQTY` / `MULTIPLEQTY` | null / 8 / null (raw 0 / 8 / 0) |
+| `PriceLevelMinQuantity` / `PriceLevelMaxQuantity` / `PriceLevelQuantityIncrement` | `PLPT_MINQTY` / `PLPT_MAXQTY` / `PLPT_MULTIPLE` of the same `PL_PT_PRICES` row the `Price` comes from | null / null / null (raw 0 / 0 / 0) |
 
-`null` means eVenue didn't send the field. `0` is kept as `0` (not turned into "no limit" here). eVenue sends no split list, so `Splits` stays `null`.
+`STUDENTMAXQTY` / `PLPT_STUDENTMAXQTY` are not stored: they only apply to the student purchase flow and were never set on 60 real events.
+
+`null` means eVenue didn't send the field **or sent `0`**: eVenue uses 0 for "not set" (user decision 2026-09-25, same for AXS). Other "no value" fields are null too, not `""`/`0`: `PriceLevelId` (eVenue `PRICELEVELCD` as a number - the only price-level field stored, same name as Broadway/AXS; null if the code is not numeric), `Zone`, `PriceClass`, `SeatKeys` (GA quantity listing). eVenue sends no split list, so `Splits` stays `null`.
 
 ## Discovery is still unsolved
 

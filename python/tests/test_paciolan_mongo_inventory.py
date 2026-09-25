@@ -62,7 +62,7 @@ def test_listing_to_document_price_lookup_and_seat_keys_join():
 
 def test_quantity_rules_are_copied_verbatim_from_the_event_page():
     # Real values from soonersports F26/F03 (2026-09-25): MINQTY 0, MAXQTY 8, MULTIPLEQTY 0,
-    # STUDENTMAXQTY 0, every PL_PT_PRICES row PLPT_* = 0. Stored as-is, 0 is NOT turned into None.
+    # STUDENTMAXQTY 0. eVenue uses 0 for "not set" -> stored as null; real limits are kept.
     import json, re
     from paciolanevenue.parser import parse_event_page
     fx = Path(__file__).resolve().parent.parent.parent / "dotnet" / "PaciolanEvenue.Tests" / "Fixtures" / "sample_event_page.html"
@@ -78,14 +78,15 @@ def test_quantity_rules_are_copied_verbatim_from_the_event_page():
     pl = price_levels[0]
     listing = Listing(level="E", row="10", price_level_cd=pl.pl, section="105", seat_keys=["10:8"], seat_nums=[8])
     doc = listing_to_document(event, listing, price_levels)
-    assert (doc["MinQuantity"], doc["MaxQuantity"], doc["QuantityIncrement"], doc["StudentMaxQuantity"]) == (0, 8, 0, 0)
-    assert (doc["PlptMinQuantity"], doc["PlptMaxQuantity"], doc["PlptMultiple"], doc["PlptStudentMaxQuantity"]) == (2, 6, 2, 0)
+    assert (doc["MinQuantity"], doc["MaxQuantity"], doc["QuantityIncrement"]) == (None, 8, None)
+    assert (doc["PriceLevelMinQuantity"], doc["PriceLevelMaxQuantity"], doc["PriceLevelQuantityIncrement"]) == (2, 6, 2)
+    assert "StudentMaxQuantity" not in doc and "PlptStudentMaxQuantity" not in doc  # student flow only - not stored
     assert doc["Splits"] is None  # eVenue sends no split list
 
 
 def test_quantity_rules_are_none_when_evenue_omits_them():
     doc = listing_to_document(_event(), Listing(level="E", row="1", price_level_cd="9", seat_keys=["1:1"], seat_nums=[1]), [])
-    assert doc["MinQuantity"] is None and doc["MaxQuantity"] is None and doc["PlptMaxQuantity"] is None
+    assert doc["MinQuantity"] is None and doc["MaxQuantity"] is None and doc["PriceLevelMaxQuantity"] is None
 
 
 if __name__ == "__main__":

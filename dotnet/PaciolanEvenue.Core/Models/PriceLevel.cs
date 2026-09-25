@@ -13,9 +13,8 @@ public class PriceLevel
     public long PerTicketFee { get; init; }
     public long FacilityFee { get; init; }
     /// <summary>Per (PL, PT) purchase-quantity rules, verbatim (PLPT_MINQTY / PLPT_MAXQTY /
-    /// PLPT_MULTIPLE / PLPT_STUDENTMAXQTY). Null = not sent.</summary>
+    /// PLPT_MULTIPLE). Null = not sent.</summary>
     public int? PlptMinQty { get; init; }
     public int? PlptMaxQty { get; init; }
     public int? PlptMultiple { get; init; }
-    public int? PlptStudentMaxQty { get; init; }
 }

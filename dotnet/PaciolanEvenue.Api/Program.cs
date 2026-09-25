@@ -101,7 +101,9 @@ PaciolanEvenueListing[] BuildDocs(string sourceEventId, List<ListingGroup> listi
         var lowSeat = listing.SeatNums.Count > 0 ? listing.SeatNums[0] : (int?)null;
         var highSeat = listing.SeatNums.Count > 0 ? listing.SeatNums[^1] : (int?)null;
         var seating = listing.SeatingType; // already POS vocabulary (SeatGrouper)
-        var priceLevelId = long.TryParse(listing.PriceLevelCd, out var pid) ? pid : 0;
+        long? priceLevelId = long.TryParse(listing.PriceLevelCd, out var pid) ? pid : null;
+        static string? Nz(string? s) => string.IsNullOrEmpty(s) ? null : s;
+        static int? Qty(int? v) => v is null or 0 ? null : v; // eVenue 0 = "not set" -> null
 
         var doc = new PaciolanEvenueListing
         {
@@ -115,22 +117,18 @@ PaciolanEvenueListing[] BuildDocs(string sourceEventId, List<ListingGroup> listi
             Seating = seating,
             Price = price,
             PriceLevelId = priceLevelId,
-            PriceLevelCd = listing.PriceLevelCd,
-            Zone = chosen?.PlDesc ?? "",
+            Zone = Nz(chosen?.PlDesc),
             DisplayPrice = price,
-            PriceClass = chosen?.Pt ?? "",
-            SeatKeys = string.Join(",", listing.SeatKeys),
+            PriceClass = Nz(chosen?.Pt),
+            SeatKeys = Nz(string.Join(",", listing.SeatKeys)), // GA quantity listing: no seat numbers
             LastApiSyncedDateTimeUtc = DateTime.UtcNow,
-            MinQuantity = ev.MinQty,
-            MaxQuantity = ev.MaxQty,
-            QuantityIncrement = ev.MultipleQty,
-            StudentMaxQuantity = ev.StudentMaxQty,
-            PlptMinQuantity = chosen?.PlptMinQty,
-            PlptMaxQuantity = chosen?.PlptMaxQty,
-            PlptMultiple = chosen?.PlptMultiple,
-            PlptStudentMaxQuantity = chosen?.PlptStudentMaxQty,
-            SeatingType = string.IsNullOrEmpty(listing.SeatingTypeCd) ? null : listing.SeatingTypeCd,
-            SeatStatus = listing.SeatStatuses.Count > 0 ? string.Join(",", listing.SeatStatuses) : null,
+            MinQuantity = Qty(ev.MinQty),
+            MaxQuantity = Qty(ev.MaxQty),
+            QuantityIncrement = Qty(ev.MultipleQty),
+            PriceLevelMinQuantity = Qty(chosen?.PlptMinQty),
+            PriceLevelMaxQuantity = Qty(chosen?.PlptMaxQty),
+            PriceLevelQuantityIncrement = Qty(chosen?.PlptMultiple),
+            SeatStatusType = SeatGrouper.SeatStatusType(listing, ev),
             SeatTag = string.IsNullOrEmpty(listing.SeatTag) ? null : listing.SeatTag,
         };
         doc.Id = ListingIdentity.BuildPaciolanEvenue(sourceEventId, listing.Level, listing.Section, listing.Row, lowSeat, highSeat, listing.SeatTag);

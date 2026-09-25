@@ -117,6 +117,7 @@ def test_royce_hall_real_map():
     ls = build_listings(seats, ev, pls)
     assert sum(l.quantity for l in ls) == sum(1 for s in seats if s.available)  # nothing lost
     assert Counter(l.seating_type for l in ls) == Counter({"Odd/Even": 70, "Consecutive": 17})
+    assert "available" in {listing_to_document(ev, l, pls)["SeatStatusType"] for l in ls}  # regular open seats
     left = [l for l in ls if l.section == "LEFT" and l.seating_type == "Odd/Even"]
     assert left and all(n % 2 == 1 for l in left for n in l.seat_nums)
     assert all(b - a == 2 for l in left for a, b in zip(l.seat_nums, l.seat_nums[1:]))
@@ -133,6 +134,9 @@ def test_lettered_codes_group_by_tag_and_keep_distinct_ids():
     assert all(l.seating_type == "Consecutive" for l in ls)
     docs = [listing_to_document(ev, l, pls) for l in build_listings(seats, ev, pls)]
     assert len({d["_id"] for d in docs}) == len(docs)
+    # wheelchair / companion seats (SEATSTATUS "w" -> HOLDCODES type "accessible") vs regular seats
+    by_tag = {(d["SeatTag"], d["LowSeat"]): d["SeatStatusType"] for d in docs if d["Section"] == "114" and d["Row"] == "20"}
+    assert set(by_tag.values()) == {"accessible"}
 
 
 def test_codes_without_digits_become_one_listing_without_seat_numbers():
@@ -159,7 +163,8 @@ def test_ga_quantity_page_counts_available_hold_codes_even_when_available_flag_i
     assert (g.quantity, g.row, g.level, g.seat_nums, g.seat_keys) == (2006, "GA", "GA", [], [])
     assert g.seat_tag == f"PL{g.price_level_cd}" and g.seat_statuses == ["O"]
     doc = listing_to_document(ev, g, pls)
-    assert doc["Quantity"] == 2006 and doc["LowSeat"] is None and doc["SeatingType"] == "G"
+    assert doc["Quantity"] == 2006 and doc["LowSeat"] is None and doc["SeatStatusType"] == "available"
+    assert "SeatingType" not in doc and "SeatStatus" not in doc
     assert doc["Seating"] == "Consecutive"
 
 

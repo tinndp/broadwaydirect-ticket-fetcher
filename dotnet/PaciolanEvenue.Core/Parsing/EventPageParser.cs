@@ -86,7 +86,6 @@ public static partial class EventPageParser
         result.MinQty = GetInt(ev, "MINQTY");
         result.MaxQty = GetInt(ev, "MAXQTY");
         result.MultipleQty = GetInt(ev, "MULTIPLEQTY");
-        result.StudentMaxQty = GetInt(ev, "STUDENTMAXQTY");
         result.FacCd = GetStr(ev, "FAC_CD");
         result.ConfigurationCd = GetStr(ev, "CONFIGURATIONCD");
         result.BaseMapId = GetStr(props, "baseMapId");
@@ -110,7 +109,6 @@ public static partial class EventPageParser
                     PlptMinQty = GetInt(pl, "PLPT_MINQTY"),
                     PlptMaxQty = GetInt(pl, "PLPT_MAXQTY"),
                     PlptMultiple = GetInt(pl, "PLPT_MULTIPLE"),
-                    PlptStudentMaxQty = GetInt(pl, "PLPT_STUDENTMAXQTY"),
                 });
             }
         }

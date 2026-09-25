@@ -117,6 +117,19 @@ def collection_name(event: Event) -> str:
     return "PaciolanEvenue_Inventories_NEW"
 
 
+def _seat_status_type(event: Event, listing: Listing):
+    """HOLDCODES types of the listing's seat statuses, e.g. "available" or "accessible, available"."""
+    if not event.hold_codes:
+        return None
+    types = sorted({event.hold_codes[c] for c in listing.seat_statuses if event.hold_codes.get(c)})
+    return ", ".join(types) or None
+
+
+def _qty(v):
+    """A purchase-quantity rule of 0 means "not set" in eVenue - stored as null, like a missing one."""
+    return v or None
+
+
 def _price_row(listing: Listing, price_levels: list):
     """The PL_PT_PRICES row _listing_price reads: Public ("P") for this
     listing's price level, else the first one, else None."""
@@ -164,7 +177,7 @@ def listing_to_document(event: Event, listing: Listing, price_levels: list) -> d
     try:
         price_level_id = int(listing.price_level_cd)
     except (TypeError, ValueError):
-        price_level_id = 0
+        price_level_id = None
 
     return {
         "_id": doc_id,
@@ -183,27 +196,27 @@ def listing_to_document(event: Event, listing: Listing, price_levels: list) -> d
         "BrokerOwned": None,
         "LastApiSyncedDateTimeUtc": datetime.datetime.now(datetime.timezone.utc),
         # Broadway-style extras (kept for parity - see module docstring):
-        "PriceLevelId": price_level_id,
-        "PriceLevelCd": listing.price_level_cd,  # raw eVenue code, in case it's ever non-numeric
-        "Zone": zone,  # DisplayName dropped per user request - was always identical to this
+        "PriceLevelId": price_level_id,  # eVenue PRICELEVELCD as a number (same field name as Broadway/AXS; null if not numeric)
+        "Zone": zone or None,  # DisplayName dropped per user request - was always identical to this
         "DisplayPrice": price,
-        "PriceClass": row.pt if row else "",  # PT of the same row the Price comes from (.NET/Rowing do the same)
-        "SeatKeys": ",".join(listing.seat_keys),
-        # Purchase-quantity rules, verbatim from the event page SSR (None = not sent, 0 kept as 0).
-        # Event level: MINQTY / MAXQTY / MULTIPLEQTY / STUDENTMAXQTY.
-        "MinQuantity": event.min_qty,
-        "MaxQuantity": event.max_qty,
-        "QuantityIncrement": event.multiple_qty,
-        "StudentMaxQuantity": event.student_max_qty,
-        # Price level level: PLPT_* of the same PL_PT_PRICES row the Price comes from.
-        "PlptMinQuantity": row.plpt_min_qty if row else None,
-        "PlptMaxQuantity": row.plpt_max_qty if row else None,
-        "PlptMultiple": row.plpt_multiple if row else None,
-        "PlptStudentMaxQuantity": row.plpt_student_max_qty if row else None,
-        # Verbatim eVenue codes behind this listing (maps_eventMap SEATING_TYPES of the price level:
-        # "R" reserved / "G" GA quantity listing; SEATSTATUS codes of its seats).
-        "SeatingType": listing.seating_type_cd or None,
-        "SeatStatus": ",".join(listing.seat_statuses) or None,
+        "PriceClass": (row.pt if row else "") or None,  # PT of the same row the Price comes from (.NET/Rowing do the same)
+        "SeatKeys": ",".join(listing.seat_keys) or None,  # GA quantity listing: no seat numbers
+        # Purchase-quantity rules from the event page SSR. eVenue uses 0 for "not set", so 0 and a
+        # missing value are both stored as null (user decision 2026-09-25).
+        # Event level: MINQTY / MAXQTY / MULTIPLEQTY. (STUDENTMAXQTY / PLPT_STUDENTMAXQTY are not stored:
+        # student-flow only, never set on 60 real events - user decision 2026-09-25.)
+        "MinQuantity": _qty(event.min_qty),
+        "MaxQuantity": _qty(event.max_qty),
+        "QuantityIncrement": _qty(event.multiple_qty),
+        # Price level: PLPT_MINQTY / PLPT_MAXQTY / PLPT_MULTIPLE of the same PL_PT_PRICES row the Price comes from.
+        "PriceLevelMinQuantity": _qty(row.plpt_min_qty if row else None),
+        "PriceLevelMaxQuantity": _qty(row.plpt_max_qty if row else None),
+        "PriceLevelQuantityIncrement": _qty(row.plpt_multiple if row else None),
+        # Standard eVenue category of the listing's seats (maps_eventMap HOLDCODES type of their
+        # SEATSTATUS codes): "available" = regular seats, "accessible" = wheelchair / ADA / companion
+        # (usually only for buyers who need them), "limited" = obstructed / limited view.
+        # Null when HOLDCODES could not be read.
+        "SeatStatusType": _seat_status_type(event, listing),
         # Part of the _id fingerprint (see _paciolan_fingerprint) - stored so Rowing's
         # ListingIdentity.ForIntegrationListing can rebuild the same _id from the document.
         "SeatTag": listing.seat_tag or None,

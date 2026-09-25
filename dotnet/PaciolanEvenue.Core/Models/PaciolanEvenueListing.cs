@@ -28,29 +28,26 @@ public class PaciolanEvenueListing
     public bool? BrokerOwned { get; set; }
     public DateTime? LastApiSyncedDateTimeUtc { get; set; }
 
-    public long PriceLevelId { get; set; }
-    public string? PriceLevelCd { get; set; }
+    /// <summary>eVenue PRICELEVELCD as a number (same field name as Broadway/AXS); null if not numeric.</summary>
+    public long? PriceLevelId { get; set; }
     public string? Zone { get; set; }
     public decimal DisplayPrice { get; set; }
     public string? PriceClass { get; set; }
     public string? SeatKeys { get; set; }
 
-    // Purchase-quantity rules, verbatim from the event page SSR (null = not sent, 0 kept as 0).
-    // Event level: MINQTY / MAXQTY / MULTIPLEQTY / STUDENTMAXQTY.
+    // Purchase-quantity rules from the event page SSR (null = not sent, or 0 = eVenue's "not set").
+    // Event level: MINQTY / MAXQTY / MULTIPLEQTY.
     public int? MinQuantity { get; set; }
     public int? MaxQuantity { get; set; }
     public int? QuantityIncrement { get; set; }
-    public int? StudentMaxQuantity { get; set; }
-    // PLPT_* of the same PL_PT_PRICES row the Price comes from.
-    public int? PlptMinQuantity { get; set; }
-    public int? PlptMaxQuantity { get; set; }
-    public int? PlptMultiple { get; set; }
-    public int? PlptStudentMaxQuantity { get; set; }
+    // PLPT_MINQTY / PLPT_MAXQTY / PLPT_MULTIPLE of the same PL_PT_PRICES row the Price comes from.
+    public int? PriceLevelMinQuantity { get; set; }
+    public int? PriceLevelMaxQuantity { get; set; }
+    public int? PriceLevelQuantityIncrement { get; set; }
 
-    // Verbatim eVenue codes behind this listing: maps_eventMap SEATING_TYPES of the price level
-    // ("R" reserved / "G" GA quantity listing) and the SEATSTATUS codes of its seats.
-    public string? SeatingType { get; set; }
-    public string? SeatStatus { get; set; }
+    /// <summary>Standard category of the listing's seats (HOLDCODES type): "available" = regular seats,
+    /// "accessible" = wheelchair / ADA / companion, "limited" = obstructed view. Null when unknown.</summary>
+    public string? SeatStatusType { get; set; }
 
     /// <summary>Part of the Id fingerprint (ListingIdentity) - stored so Rowing can rebuild the same Id.</summary>
     public string? SeatTag { get; set; }

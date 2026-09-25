@@ -165,6 +165,20 @@ public static partial class SeatGrouper
         return listings;
     }
 
+    /// <summary>Standard eVenue category of the listing's seats: the HOLDCODES types of their SEATSTATUS
+    /// codes, e.g. "available" or "accessible, available". Null when HOLDCODES could not be read.
+    /// (SEATSTATUS codes are per school - "c" is Camera at one school, Companion Seat at another - so
+    /// only this standard type is stored.)</summary>
+    public static string? SeatStatusType(ListingGroup listing, EventPageData ev)
+    {
+        if (ev.HoldCodes == null || ev.HoldCodes.Count == 0) return null;
+        var types = listing.SeatStatuses
+            .Select(c => ev.HoldCodes.TryGetValue(c, out var t) ? t : null)
+            .Where(t => !string.IsNullOrEmpty(t)).Select(t => t!)
+            .Distinct().OrderBy(t => t, StringComparer.Ordinal).ToList();
+        return types.Count > 0 ? string.Join(", ", types) : null;
+    }
+
     private static List<string> Distinct(IEnumerable<string> xs) =>
         xs.Distinct().OrderBy(x => x, StringComparer.Ordinal).ToList();
 }
