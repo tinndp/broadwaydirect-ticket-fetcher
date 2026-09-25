@@ -27,6 +27,7 @@
   <ItemGroup>
     <None Include="Fixtures\sample_event_page.html" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\sample_seat_availability.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\paciolan_rules\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1,15 +1,21 @@
+using System.Text.Json;
 using PaciolanEvenue.Core.Grouping;
 using PaciolanEvenue.Core.Models;
 using PaciolanEvenue.Core.Parsing;
+using PaciolanEvenue.Core.Storage;
 
 namespace PaciolanEvenue.Tests;
 
+/// <summary>The listing rule agreed on 2026-09-25 (python/EVENUE_INVENTORY_RULES.md). The
+/// Fixtures/paciolan_rules files are real responses captured 2026-09-25; expected_python.json is what
+/// python/paciolanevenue produces on them - the .NET port must match it listing by listing.</summary>
 public class GroupingTests
 {
-    private static SeatRow Seat(string levelSection, string row, string seatCd, string plcd = "1", bool available = true)
+    private static readonly PriceLevel[] Pl1 = { new() { Pl = "1", PlDesc = "Tier 1", Pt = "P", PtDesc = "Public", Price = 5000 } };
+
+    private static SeatRow Seat(string levelSection, string row, string seatCd, string plcd = "1", bool available = true, string status = "O")
     {
         var colon = levelSection.IndexOf(':');
-        var seatNum = int.TryParse(seatCd, out var n) ? n : (int?)null;
         return new SeatRow
         {
             LevelSectionCd = levelSection,
@@ -17,130 +23,171 @@ public class GroupingTests
             Section = colon >= 0 ? levelSection[(colon + 1)..] : levelSection,
             RowCd = row,
             SeatCd = seatCd,
-            SeatNum = seatNum,
+            SeatNum = int.TryParse(seatCd, out var n) ? n : null,
             PriceLevelCd = plcd,
+            SeatStatus = status,
             Available = available,
         };
     }
 
-    [Fact]
-    public void DefaultRules_are_always_consecutive_no_suffix()
-    {
-        var (suffix, seatingType) = SeatGrouper.ClassifySection("101", 5, SectionRules.Default());
-        Assert.Equal("", suffix);
-        Assert.Equal("Consecutive", seatingType);
+    private static EventPageData Ev(IEnumerable<PriceLevel>? pls = null, Dictionary<string, string>? hold = null, Dictionary<string, string>? seating = null) =>
+        new() { Host = "h", SeasonCd = "S", ItemCd = "I", PriceLevels = (pls ?? Pl1).ToList(), HoldCodes = hold, SeatingTypes = seating };
 
-        (suffix, seatingType) = SeatGrouper.ClassifySection("101", 500, SectionRules.Default());
-        Assert.Equal("", suffix);
-        Assert.Equal("Consecutive", seatingType);
+    private static (List<SeatRow> Seats, EventPageData Ev) Load(string name, bool withMap = true)
+    {
+        var dir = Path.Combine(AppContext.BaseDirectory, "Fixtures", "paciolan_rules");
+        using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, name + ".json")));
+        var root = doc.RootElement;
+        var meta = root.GetProperty("meta");
+        var ev = new EventPageData
+        {
+            Host = meta.GetProperty("host").GetString()!, SeasonCd = meta.GetProperty("season").GetString()!,
+            ItemCd = meta.GetProperty("item").GetString()!,
+            PriceLevels = root.GetProperty("pl_pt").EnumerateArray().Select(x => new PriceLevel
+            {
+                Pl = x.GetProperty("PL").ToString(), PlDesc = x.GetProperty("PL_DESC").GetString() ?? "",
+                Pt = x.GetProperty("PT").GetString() ?? "", PtDesc = x.GetProperty("PT_DESC").GetString() ?? "",
+                Price = x.GetProperty("PRICE").GetInt64(),
+            }).ToList(),
+        };
+        if (withMap)
+        {
+            ev.HoldCodes = root.GetProperty("hold_codes").EnumerateArray()
+                .ToDictionary(h => h.GetProperty("holdcode").GetString()!, h => h.GetProperty("type").GetString() ?? "");
+            ev.SeatingTypes = root.GetProperty("seating_types").EnumerateArray()
+                .ToDictionary(x => x.GetProperty("pl").ToString(), x => x.GetProperty("seatingType").GetString() ?? "");
+        }
+        var body = JsonSerializer.Serialize(new object[] { root.GetProperty("rows"), root.GetProperty("columns") });
+        return (SeatAvailabilityParser.Parse(body, ev).Rows, ev);
     }
 
     [Fact]
-    public void Contiguous_seats_group_into_one_listing()
+    public void SplitSeatCode_reads_number_and_letters()
     {
-        var seats = new[] { Seat("E:105", "10", "8"), Seat("E:105", "10", "9"), Seat("E:105", "10", "10") };
-        var listings = SeatGrouper.GroupIntoListings(seats);
-
-        Assert.Single(listings);
-        Assert.Equal(3, listings[0].Quantity);
-        Assert.Equal("Consecutive", listings[0].SeatingType);
+        Assert.Equal((12, ""), SeatGrouper.SplitSeatCode("12"));
+        Assert.Equal((1, "W"), SeatGrouper.SplitSeatCode("W1"));
+        Assert.Equal((10, "w"), SeatGrouper.SplitSeatCode("10w"));
+        Assert.Equal((1, "A"), SeatGrouper.SplitSeatCode("1A"));
+        Assert.Equal(((int?)null, "INFANT"), SeatGrouper.SplitSeatCode("INFANT"));
     }
 
     [Fact]
-    public void Level_only_and_section_only_are_split_on_the_listing()
+    public void Consecutive_run_is_one_listing_and_a_missing_number_ends_it()
     {
-        var seats = new[] { Seat("E:105", "10", "8"), Seat("E:105", "10", "9") };
-        var listings = SeatGrouper.GroupIntoListings(seats);
-
-        Assert.Equal("E", listings[0].Level);
-        Assert.Equal("105", listings[0].Section);
-        // seat_keys drop BOTH Level and Section now - just "Row:SeatCd".
-        Assert.Equal(new[] { "10:8", "10:9" }, listings[0].SeatKeys);
+        var ls = SeatGrouper.BuildListings(new[] { 8, 9, 10, 15, 16 }.Select(n => Seat("E:105", "10", n.ToString())).ToList(), Ev());
+        Assert.Equal(new[] { "10:8,10:9,10:10", "10:15,10:16" }, ls.OrderBy(l => l.SeatNums[0]).Select(l => string.Join(",", l.SeatKeys)));
+        Assert.All(ls, l => Assert.Equal("Consecutive", l.SeatingType));
+        Assert.All(ls, l => Assert.Equal(("E", "105"), (l.Level, l.Section)));
     }
 
     [Fact]
-    public void Different_sections_sharing_a_level_are_not_merged()
+    public void Sold_seats_shape_the_section_and_unpriced_levels_are_never_listed()
     {
-        var seats = new[] { Seat("E:105", "10", "8"), Seat("E:106", "10", "8") };
-        var listings = SeatGrouper.GroupIntoListings(seats);
-
-        Assert.Equal(2, listings.Count);
-        var sections = listings.Select(l => l.Section).OrderBy(s => s).ToList();
-        Assert.Equal(new[] { "105", "106" }, sections);
+        var seats = Enumerable.Range(1, 6).Select(n => Seat("E:1", "A", n.ToString(), available: n is 1 or 3)).ToList();
+        seats.Add(Seat("E:1", "B", "1", plcd: "9"));
+        var ls = SeatGrouper.BuildListings(seats, Ev());
+        Assert.Equal(new[] { 1, 3 }, ls.Select(l => l.SeatNums.Single()).OrderBy(x => x));
+        Assert.All(ls, l => Assert.Equal("Consecutive", l.SeatingType));
     }
 
     [Fact]
-    public void Splits_on_a_gap_in_seat_numbers()
+    public void Odd_even_needs_four_same_parity_seats_without_neighbours()
     {
-        var seats = new[] { Seat("E:105", "10", "8"), Seat("E:105", "10", "9"), Seat("E:105", "10", "10"), Seat("E:105", "10", "15"), Seat("E:105", "10", "16") };
-        var listings = SeatGrouper.GroupIntoListings(seats);
-        Assert.Equal(2, listings.Count);
+        var seats = new[] { 15, 17, 19, 21 }.Select(n => Seat("L:LEFT", "A", n.ToString()))
+            .Concat(new[] { 16, 18, 20 }.Select(n => Seat("L:RGHT", "A", n.ToString())))
+            .Concat(new[] { 1, 3, 5, 6 }.Select(n => Seat("L:CTR", "A", n.ToString()))).ToList();
+        Assert.Equal(new[] { "L:LEFT" }, SeatGrouper.OddEvenSections(seats));
+
+        var ls = SeatGrouper.BuildListings(new[] { 15, 17, 19, 23, 25, 29 }.Select(n => Seat("L:LEFT", "A", n.ToString())).ToList(), Ev())
+            .OrderBy(l => l.SeatNums[0]).Select(l => (l.SeatNums.First(), l.SeatNums.Last(), l.SeatingType));
+        Assert.Equal(new[] { (15, 19, "Odd/Even"), (23, 25, "Odd/Even"), (29, 29, "Consecutive") }, ls);
     }
 
     [Fact]
-    public void Splits_on_a_price_level_change()
+    public void Codes_without_digits_become_one_listing_and_no_Ungrouped_value_is_left()
     {
-        var seats = new[] { Seat("E:105", "10", "8", "1"), Seat("E:105", "10", "9", "2") };
-        var listings = SeatGrouper.GroupIntoListings(seats);
-        Assert.Equal(2, listings.Count);
+        var ls = SeatGrouper.BuildListings(new List<SeatRow> { Seat("GA:GEN", "GEN", "INFANT"), Seat("GA:GEN", "GEN", "LAP"), Seat("E:1", "A", "10w") }, Ev());
+        var nc = ls.Single(l => l.SeatTag == "NC1");
+        Assert.Equal((0, 2), (nc.SeatNums.Count, nc.Quantity));
+        Assert.All(ls, l => Assert.Equal("Consecutive", l.SeatingType));
     }
 
     [Fact]
-    public void Non_numeric_seat_becomes_its_own_ungrouped_listing()
+    public void Ga_counts_available_hold_codes_whatever_the_AVAILABLE_flag_says()
     {
-        var seats = new[] { Seat("E:105", "10", "8"), Seat("GA", "GEN", "INFANT") };
-        var listings = SeatGrouper.GroupIntoListings(seats);
-        var ungrouped = listings.Where(l => l.SeatingType == "Ungrouped").ToList();
-
-        Assert.Single(ungrouped);
-        Assert.Equal(new[] { "INFANT" }, ungrouped[0].SeatCds);
-        Assert.Empty(ungrouped[0].SeatNums);
+        var hold = new Dictionary<string, string> { ["O"] = "available", ["w"] = "accessible", ["K"] = "hidden" };
+        var seats = new[] { (1, "O"), (2, "O"), (3, "w"), (4, "K"), (5, "X") }
+            .Select(x => Seat("GA:GA", "1", x.Item1.ToString(), available: false, status: x.Item2)).ToList();
+        var ls = SeatGrouper.BuildListings(seats, Ev(hold: hold, seating: new() { ["1"] = "G" }));
+        var g = Assert.Single(ls);
+        Assert.Equal((2, "GA", "GA", "Tier 1", "PL1", "G"), (g.Quantity, g.Level, g.Row, g.Section, g.SeatTag, g.SeatingTypeCd));
+        Assert.Empty(g.SeatNums);
     }
 
     [Fact]
-    public void Suffix_is_appended_onto_Level_when_a_venue_rule_produces_one()
+    public void Without_event_map_it_falls_back_to_the_AVAILABLE_flag()
     {
-        // Regression test for a real bug found 2026-09-22 via a real Windows run: grouping.py's
-        // _make_listing appends the classify_section suffix onto Listing.level (e.g. "OK SIDES"),
-        // which SeatGrouper.MakeListing silently dropped before this fix. Invisible under
-        // SectionRules.Default() (both suffixes are "") - this test uses non-empty suffixes
-        // specifically to exercise the fixed path.
-        var rules = new SectionRules { CenterSeatThreshold = 100, SidesSuffix = "SIDES", CenterSuffix = "CENTER" };
-        var sides = SeatGrouper.GroupIntoListings(new[] { Seat("OK:107", "10", "8"), Seat("OK:107", "10", "10") }, rules);
-        var center = SeatGrouper.GroupIntoListings(new[] { Seat("OK:107", "10", "150"), Seat("OK:107", "10", "151") }, rules);
+        var (seats, ev) = Load("ku_iowa_state_06_ga", withMap: false);
+        Assert.DoesNotContain(seats, s => s.Available);
+        Assert.Empty(SeatGrouper.BuildListings(seats, ev));
+    }
 
-        Assert.Single(sides);
-        Assert.Equal("OK SIDES", sides[0].Level);
-        Assert.Equal("107", sides[0].Section); // Section is untouched by the suffix
+    [Theory]
+    [InlineData("ucla_royce_370")]
+    [InlineData("ku_iowa_state_06_ga")]
+    [InlineData("mgoblue_v07_wc")]
+    public void Real_events_match_python_listing_by_listing(string name)
+    {
+        var (seats, ev) = Load(name);
+        var ls = SeatGrouper.BuildListings(seats, ev);
+        var sourceEventId = $"{ev.Host}:{ev.SeasonCd}:{ev.ItemCd}";
+        var net = ls.ToDictionary(l => ListingIdentity.BuildPaciolanEvenue(sourceEventId, l.Level, l.Section, l.Row,
+            l.SeatNums.Count > 0 ? l.SeatNums[0] : null, l.SeatNums.Count > 0 ? l.SeatNums[^1] : null, l.SeatTag));
 
-        Assert.Single(center);
-        Assert.Equal("OK CENTER", center[0].Level);
+        using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "paciolan_rules", "expected_python.json")));
+        var exp = doc.RootElement.GetProperty(name);
+        Assert.Equal(exp.GetProperty("source_event_id").GetString(), sourceEventId);
+        var py = exp.GetProperty("docs").EnumerateArray().ToList();
+        Assert.Equal(py.Count, net.Count);
+        foreach (var p in py)
+        {
+            var id = p.GetProperty("_id").GetString()!;
+            Assert.True(net.ContainsKey(id), $"python _id {id} missing in .NET output");
+            var l = net[id];
+            Assert.Equal(p.GetProperty("Level").GetString(), l.Level);
+            Assert.Equal(p.GetProperty("Section").GetString(), l.Section);
+            Assert.Equal(p.GetProperty("Row").GetString(), l.Row);
+            Assert.Equal(p.GetProperty("Quantity").GetInt32(), l.Quantity);
+            Assert.Equal(p.GetProperty("Seating").GetString(), l.SeatingType);
+            Assert.Equal(p.GetProperty("PriceLevelCd").GetString(), l.PriceLevelCd);
+            Assert.Equal(p.GetProperty("SeatKeys").GetString(), string.Join(",", l.SeatKeys));
+            Assert.Equal(p.GetProperty("SeatingType").ValueKind == JsonValueKind.Null ? "" : p.GetProperty("SeatingType").GetString(), l.SeatingTypeCd);
+            Assert.Equal(p.GetProperty("SeatStatus").ValueKind == JsonValueKind.Null ? "" : p.GetProperty("SeatStatus").GetString(), string.Join(",", l.SeatStatuses));
+        }
     }
 
     [Fact]
-    public void Singleton_run_is_forced_consecutive_even_in_an_oddeven_bucket()
+    public void Royce_hall_odd_even_sections_and_nothing_lost()
     {
-        var rules = new SectionRules { CenterSeatThreshold = 100, SidesSuffix = "SIDES", CenterSuffix = "CENTER" };
-        var seats = new[] { Seat("E:105", "10", "8") }; // seatNum=8 <= threshold -> OddEven bucket
-        var listings = SeatGrouper.GroupIntoListings(seats, rules);
-
-        Assert.Single(listings);
-        Assert.Equal("Consecutive", listings[0].SeatingType);
+        var (seats, ev) = Load("ucla_royce_370");
+        Assert.Equal(new[] { "1:BLCOR", "1:BLCTR", "1:BLEFT", "1:BRCOR", "1:BRCTR", "1:BRGHT", "1:LEFT", "1:RGHT" },
+            SeatGrouper.OddEvenSections(seats).OrderBy(x => x, StringComparer.Ordinal));
+        var ls = SeatGrouper.BuildListings(seats, ev);
+        Assert.Equal(seats.Count(s => s.Available), ls.Sum(l => l.Quantity));
+        Assert.Equal(70, ls.Count(l => l.SeatingType == "Odd/Even"));
     }
 
     [Fact]
-    public void End_to_end_fixture_produces_3_listings()
+    public void Event_map_query_and_response()
     {
-        var body = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "sample_seat_availability.json"));
-        var ev = new EventPageData { Host = "purduesports.evenue.net", SeasonCd = "F26", ItemCd = "F06" };
-        var result = SeatAvailabilityParser.Parse(body, ev);
-        var available = result.Rows.Where(r => r.Available).ToList();
-
-        var listings = SeatGrouper.GroupIntoListings(available);
-
-        Assert.Equal(3, listings.Count); // E:105(8,9) + E:106(8) + GA ungrouped(INFANT)
-        Assert.Contains(listings, l => l.Level == "E" && l.Section == "105" && l.Quantity == 2);
-        Assert.Contains(listings, l => l.Level == "E" && l.Section == "106" && l.Quantity == 1);
-        Assert.Contains(listings, l => l.SeatingType == "Ungrouped");
+        var ev = new EventPageData { SeasonCd = "F26", ItemCd = "F04", DataAccountId = "242", FacCd = "RA", ConfigurationCd = "T",
+            PolicyCd = "IBM:DEFAULT:I", PolicyType = "I", DistributorId = "IBM", BaseMapId = "1947" };
+        var q = JsonDocument.Parse(EventMapQuery.BuildBody(ev)).RootElement.GetProperty("query").GetString()!;
+        Assert.Contains("itemCd: \"F04\"", q);
+        Assert.Contains("availability: \"A|S\"", q);
+        Assert.Contains("HOLDCODES", q);
+        EventMapQuery.Apply(ev, "{\"data\":{\"maps_eventMap\":{\"SEATING_TYPES\":[{\"pl\":\"6\",\"seatingType\":\"G\"}],\"HOLDCODES\":[{\"holdcode\":\"O\",\"title\":\"Open Seats\",\"message\":null,\"type\":\"available\"}]}}}");
+        Assert.Equal("available", ev.HoldCodes!["O"]);
+        Assert.Equal("G", ev.SeatingTypes!["6"]);
     }
 }

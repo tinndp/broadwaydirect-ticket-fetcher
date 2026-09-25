@@ -39,6 +39,28 @@ public class EventPageData
     public int? TotalCapacityFromSsr { get; set; }
     public int? AvailableFromSsr { get; set; }
 
+    /// <summary>Event-level purchase-quantity rules, verbatim from SSR (MINQTY / MAXQTY /
+    /// MULTIPLEQTY / STUDENTMAXQTY). Null = not sent; 0 is kept as 0, not interpreted.</summary>
+    public int? MinQty { get; set; }
+    public int? MaxQty { get; set; }
+    public int? MultipleQty { get; set; }
+    public int? StudentMaxQty { get; set; }
+
+    /// <summary>What the maps_eventMap GraphQL query needs: FAC_CD, CONFIGURATIONCD, props.baseMapId.</summary>
+    public string FacCd { get; set; } = "";
+    public string ConfigurationCd { get; set; } = "";
+    public string BaseMapId { get; set; } = "";
+
+    /// <summary>ALLOWSEATMAP. False = quantity-only / best-available page, which does NOT request
+    /// seat availability itself (so there is nothing to capture - see PaciolanEvenuePlaywrightClient).</summary>
+    public bool? AllowSeatMap { get; set; }
+
+    /// <summary>maps_eventMap HOLDCODES (SEATSTATUS code -> type: available / accessible / limited /
+    /// hidden) and SEATING_TYPES (price level -> "R" reserved / "G" GA), verbatim. Null = not fetched
+    /// or failed - SeatGrouper then falls back to AVAILABLE == 1.</summary>
+    public Dictionary<string, string>? HoldCodes { get; set; }
+    public Dictionary<string, string>? SeatingTypes { get; set; }
+
     public List<PriceLevel> PriceLevels { get; set; } = new();
 
     public string EventUrl => $"https://{Host}/event/{SeasonCd}/{ItemCd}";

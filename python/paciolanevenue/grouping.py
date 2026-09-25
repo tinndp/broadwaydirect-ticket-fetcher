@@ -1,139 +1,118 @@
-"""Groups individual AVAILABLE seats into listings - same algorithm SHAPE as
-broadwaydirect/grouping.py (per the user's "same rule as Broadway"
-instruction), ported from the .NET demo's SeatGrouper.cs. Two things could
-NOT be ported as-is - see README.md "Open questions":
+"""Seats -> listings, the rule agreed with the user on 2026-09-25 after 72 real events on 12
+eVenue hosts (research notes: ../EVENUE_INVENTORY_RULES.md).
 
-  1. Accessible/ADA seats: broadwaydirect has an explicit `ada_type` field
-     per seat and excludes non-"None" ones by default. eVenue's seat rows
-     have no such field - the closest candidate, marker_id/
-     seat_marker_active, is UNCONFIRMED. This grouper does NOT exclude
-     anything based on it.
-  2. DEFAULT_RULES here are deliberately inert (see below) - Broadway's
-     numbers describe one theater's chart, not a stadium's.
+1. Only price levels with a public price (in the event page's PL_PT_PRICES) are sold.
+2. Which seats are sellable depends on the price level's SEATING_TYPES (maps_eventMap):
+   - "R" (reserved): AVAILABLE == 1 (pickable on the map) - what the crawler always used.
+   - "G" (GA, sold by quantity): SEATSTATUS whose HOLDCODES type is "available", whatever
+     AVAILABLE says - quantity-only pages (ALLOWSEATMAP=False) report AVAILABLE=0 for every
+     seat while selling them (Oklahoma softball/volleyball, Kansas soccer).
+   Without maps_eventMap data (event.hold_codes is None) it falls back to AVAILABLE == 1.
+3. GA: ONE quantity listing per price level (no seat numbers - eVenue assigns them; Rowing
+   gives it dummy seats). Section = PL_DESC, Row = "GA".
+4. Reserved: seats of one (section, row, price level, seat tag) grouped into runs.
+   A SECTION is Odd/Even when, over EVERY numbered seat of the map (sold ones too), it has
+   at least 4 seats, all odd or all even, and no two seats numbered n and n+1 (e.g. UCLA Royce
+   Hall LEFT 15,17..41 / RGHT 16,18..42). Runs step 2 there, step 1 elsewhere; a missing number
+   ends a run. A 1-seat run is Consecutive.
+5. Lettered seat codes (W1, C1, 10w, 12c, 1A): the number is the seat number, the letters are
+   the tag - only seats with the same tag are grouped. Codes with no digits at all become one
+   listing per (section, row, price level) without seat numbers.
 """
 
-import json
-from typing import Iterable, Optional
+import re
+from collections import defaultdict
+from typing import Optional
 
 from .models import SeatRow, Listing
 
-# center_seat_threshold=0 means every numbered seat takes the CENTER/
-# Consecutive branch (plain adjacency grouping, no odd/even split) and both
-# suffixes are empty (no label appended) - "group adjacent seats, invent
-# nothing about the venue's layout" until real per-venue rules are supplied.
-DEFAULT_RULES = {
-    "box_prefixes": [],
-    "center_seat_threshold": 0,
-    "sides_suffix": "",
-    "center_suffix": "",
-}
+SELLABLE_GA_HOLD_TYPE = "available"
+_CODE_RE = re.compile(r"^([A-Za-z]*)(\d+)([A-Za-z]*)$")
 
 
-def load_rules(path: Optional[str] = None) -> dict:
-    if not path:
-        return dict(DEFAULT_RULES)
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    rules = dict(DEFAULT_RULES)
-    for k in ("box_prefixes", "center_seat_threshold", "sides_suffix", "center_suffix"):
-        if k in data:
-            rules[k] = data[k]
-    return rules
+def split_seat_code(seat_cd: str):
+    """"12" -> (12, ""), "W1" -> (1, "W"), "10w" -> (10, "w"), "INFANT" -> (None, "INFANT")."""
+    m = _CODE_RE.match(seat_cd or "")
+    if not m:
+        return None, seat_cd or ""
+    return int(m.group(2)), m.group(1) + m.group(3)
 
 
-def classify_section(section: str, seat_num: Optional[int], rules: dict):
-    """Returns (suffix, seating_type). A Box-prefix section, or a seat whose
-    seat_num didn't parse (None), always comes back Consecutive/no-suffix -
-    adjacency-by-number cannot apply to a non-numeric seat."""
-    if seat_num is not None:
-        section_upper = section.upper()
-        if any(p and section_upper.startswith(p.upper()) for p in rules["box_prefixes"]):
-            return "", "Consecutive"
-        threshold = rules["center_seat_threshold"]
-        if seat_num > threshold:
-            return rules["center_suffix"], "Consecutive"
-        return rules["sides_suffix"], "OddEven"
-    return "", "Consecutive"
+def odd_even_sections(all_seats) -> set:
+    """level_section_cd of every Odd/Even section, judged on the whole seat map."""
+    nums = defaultdict(set)
+    for s in all_seats:
+        n, tag = split_seat_code(s.seat_cd)
+        if n is not None and not tag:
+            nums[s.level_section_cd].add(n)
+    return {sec for sec, v in nums.items()
+            if len(v) >= 4 and len({n % 2 for n in v}) == 1 and not any(n + 1 in v for n in v)}
 
 
-def group_into_listings(available_seats: Iterable[SeatRow], rules: Optional[dict] = None) -> list:
-    rules = rules or DEFAULT_RULES
-    buckets: dict[tuple, list] = {}
-    bucket_order: list[tuple] = []
-    bucket_suffix: dict[tuple, str] = {}
-    ungrouped: list[SeatRow] = []
+def is_sellable(seat: SeatRow, event) -> bool:
+    if event.hold_codes is None or event.seating_types is None:
+        return seat.available
+    if event.seating_types.get(seat.price_level_cd) == "G":
+        return event.hold_codes.get(seat.seat_status) == SELLABLE_GA_HOLD_TYPE
+    return seat.available
 
-    for s in available_seats:
-        suffix, seating_type = classify_section(s.section, s.seat_num, rules)
-        if s.seat_num is None:
-            ungrouped.append(s)
-            continue
-        # Bucket key MUST stay keyed on the FULL level_section_cd (not just
-        # level or just section) so two different sections sharing the same
-        # level, or the same section under a different level, never merge
-        # into one listing. Only the OUTPUT fields (Listing.level/.section
-        # below, in _make_listing) split it into Level-only vs Section-only.
-        bucket_label = f"{s.level_section_cd} {suffix}".strip() if suffix else s.level_section_cd
-        parity = (s.seat_num % 2) if seating_type == "OddEven" else -1
-        key = (bucket_label, s.row_cd, s.price_level_cd, seating_type, parity)
-        if key not in buckets:
-            buckets[key] = []
-            bucket_order.append(key)
-            bucket_suffix[key] = suffix
-        buckets[key].append(s)
+
+def build_listings(all_seats: list, event, price_levels: list) -> list:
+    """all_seats = the WHOLE seat-availability response (every status) - needed to judge
+    Odd/Even sections. Returns listings for sellable seats only (see module docstring)."""
+    priced = {pl.pl for pl in price_levels}
+    pl_desc = {}
+    for pl in price_levels:
+        pl_desc.setdefault(pl.pl, pl.pl_desc)
+    seating_types = event.seating_types or {}
+    sellable = [s for s in all_seats if s.price_level_cd in priced and is_sellable(s, event)]
 
     listings = []
-    for key in bucket_order:
-        _bucket_label, row, plcd, seating_type, _parity = key
-        group = buckets[key]
-        suffix = bucket_suffix[key]
-        step = 2 if seating_type == "OddEven" else 1
-        sorted_group = sorted(group, key=lambda s: s.seat_num)
+    ga = defaultdict(list)
+    reserved = defaultdict(list)
+    for s in sellable:
+        if seating_types.get(s.price_level_cd) == "G":
+            ga[s.price_level_cd].append(s)
+        else:
+            n, tag = split_seat_code(s.seat_cd)
+            reserved[(s.level_section_cd, s.row_cd, s.price_level_cd, tag if n is not None else None)].append((n, s))
 
-        run = [sorted_group[0]]
-        for prev, cur in zip(sorted_group, sorted_group[1:]):
-            if cur.seat_num - prev.seat_num == step:
-                run.append(cur)
-            else:
-                listings.append(_make_listing(suffix, row, plcd, seating_type, run))
-                run = [cur]
-        listings.append(_make_listing(suffix, row, plcd, seating_type, run))
-
-    for s in ungrouped:
+    for plcd in sorted(ga, key=lambda x: (len(x), x)):
+        seats = ga[plcd]
         listings.append(Listing(
-            level=s.level,
-            row=s.row_cd,
-            price_level_cd=s.price_level_cd,
-            section=s.section,
-            seat_keys=[s.seat_key],
-            seat_cds=[s.seat_cd],
-            seating_type="Ungrouped",
+            level="GA", section=pl_desc.get(plcd, "") or "General Admission", row="GA",
+            price_level_cd=plcd, seat_tag=f"PL{plcd}", seating_type="Consecutive",
+            seating_type_cd="G", seat_statuses=sorted({s.seat_status for s in seats}),
+            quantity_override=len(seats),
         ))
 
+    oe = odd_even_sections(all_seats)
+    for (lsc, row, plcd, tag), items in reserved.items():
+        first = items[0][1]
+        base = dict(level=first.level, section=first.section, row=row, price_level_cd=plcd,
+                    seating_type_cd=seating_types.get(plcd, ""))
+        if tag is None:  # no digits in the code at all
+            seats = [s for _, s in items]
+            listings.append(Listing(seat_keys=[s.seat_key for s in seats], seat_cds=[s.seat_cd for s in seats],
+                                    seat_tag=f"NC{plcd}",
+                                    seat_statuses=sorted({s.seat_status for s in seats}), **base))
+            continue
+        step = 2 if (not tag and lsc in oe) else 1
+        by_num = {}
+        for n, s in sorted(items, key=lambda x: x[0]):
+            by_num.setdefault(n, s)
+        run = []
+        for n in sorted(by_num) + [None]:
+            if run and (n is None or n - run[-1] != step):
+                seats = [by_num[x] for x in run]
+                listings.append(Listing(
+                    seat_keys=[x.seat_key for x in seats], seat_nums=list(run), seat_cds=[x.seat_cd for x in seats],
+                    seat_tag=tag, seating_type="Odd/Even" if step == 2 and len(run) > 1 else "Consecutive",
+                    seat_statuses=sorted({x.seat_status for x in seats}), **base))
+                run = []
+            if n is not None:
+                run.append(n)
     return listings
-
-
-def _make_listing(suffix, row, plcd, seating_type, run) -> Listing:
-    # A run of exactly one seat is always Consecutive, even in an OddEven
-    # bucket - matches broadwaydirect's _make_listing.
-    if len(run) <= 1:
-        seating_type = "Consecutive"
-    # Listing.level = Level only + suffix if any (e.g. "OK SIDES"), NOT the
-    # full LEVELSECTIONCD - the Section part lives on Listing.section
-    # instead (both same for every seat in the run - grouping already keyed
-    # on the full level_section_cd, so run[0]'s level/section apply to all).
-    level = run[0].level
-    label = f"{level} {suffix}".strip() if suffix else level
-    return Listing(
-        level=label,
-        row=row,
-        price_level_cd=plcd,
-        section=run[0].section,
-        seat_keys=[s.seat_key for s in run],
-        seat_nums=[s.seat_num for s in run],
-        seat_cds=[s.seat_cd for s in run],
-        seating_type=seating_type,
-    )
 
 
 def parse_seat_availability(top: list, columns_expected: list) -> tuple[list, list]:

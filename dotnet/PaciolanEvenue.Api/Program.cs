@@ -90,8 +90,9 @@ decimal ListingPrice(ListingGroup listing, List<PriceLevel> priceLevels)
     return Math.Round(chosen.Price / 100m, 2);
 }
 
-PaciolanEvenueListing[] BuildDocs(string sourceEventId, List<ListingGroup> listings, List<PriceLevel> priceLevels)
+PaciolanEvenueListing[] BuildDocs(string sourceEventId, List<ListingGroup> listings, EventPageData ev)
 {
+    var priceLevels = ev.PriceLevels;
     return listings.Select(listing =>
     {
         var candidates = priceLevels.Where(p => p.Pl == listing.PriceLevelCd).ToList();
@@ -99,7 +100,7 @@ PaciolanEvenueListing[] BuildDocs(string sourceEventId, List<ListingGroup> listi
         var price = ListingPrice(listing, priceLevels);
         var lowSeat = listing.SeatNums.Count > 0 ? listing.SeatNums[0] : (int?)null;
         var highSeat = listing.SeatNums.Count > 0 ? listing.SeatNums[^1] : (int?)null;
-        var seating = listing.SeatingType == "OddEven" ? "Odd/Even" : listing.SeatingType;
+        var seating = listing.SeatingType; // already POS vocabulary (SeatGrouper)
         var priceLevelId = long.TryParse(listing.PriceLevelCd, out var pid) ? pid : 0;
 
         var doc = new PaciolanEvenueListing
@@ -120,8 +121,19 @@ PaciolanEvenueListing[] BuildDocs(string sourceEventId, List<ListingGroup> listi
             PriceClass = chosen?.Pt ?? "",
             SeatKeys = string.Join(",", listing.SeatKeys),
             LastApiSyncedDateTimeUtc = DateTime.UtcNow,
+            MinQuantity = ev.MinQty,
+            MaxQuantity = ev.MaxQty,
+            QuantityIncrement = ev.MultipleQty,
+            StudentMaxQuantity = ev.StudentMaxQty,
+            PlptMinQuantity = chosen?.PlptMinQty,
+            PlptMaxQuantity = chosen?.PlptMaxQty,
+            PlptMultiple = chosen?.PlptMultiple,
+            PlptStudentMaxQuantity = chosen?.PlptStudentMaxQty,
+            SeatingType = string.IsNullOrEmpty(listing.SeatingTypeCd) ? null : listing.SeatingTypeCd,
+            SeatStatus = listing.SeatStatuses.Count > 0 ? string.Join(",", listing.SeatStatuses) : null,
+            SeatTag = string.IsNullOrEmpty(listing.SeatTag) ? null : listing.SeatTag,
         };
-        doc.Id = ListingIdentity.BuildPaciolanEvenue(sourceEventId, listing.Level, listing.Section, listing.Row, lowSeat, highSeat);
+        doc.Id = ListingIdentity.BuildPaciolanEvenue(sourceEventId, listing.Level, listing.Section, listing.Row, lowSeat, highSeat, listing.SeatTag);
         return doc;
     }).ToArray();
 }
@@ -165,11 +177,13 @@ app.MapPost("/api/seatavailability", async (SeatAvailabilityRequest req) =>
 
     EventPageData ev;
     SeatCrawlResult seatResult;
+    string mapNote;
     var client = GetClient(proxy);
     try
     {
         ev = await client.GetEventAsync(host, seasonCd, itemCd);
         seatResult = await client.GetSeatAvailabilityAsync(ev);
+        mapNote = await client.GetEventMapAsync(ev);
     }
     // NotAnEventPage (wrong itemCd) is not a block - matches python/paciolanevenue/api.py's own
     // 404-vs-502 split exactly. Getting this wrong (both as 502) is a real bug that was found and
@@ -189,14 +203,13 @@ app.MapPost("/api/seatavailability", async (SeatAvailabilityRequest req) =>
         return Results.Problem(detail: ex.Message, statusCode: StatusCodes.Status502BadGateway);
     }
 
-    var available = seatResult.Rows.Where(r => r.Available).ToList();
-    var listings = SeatGrouper.GroupIntoListings(available);
+    var listings = SeatGrouper.BuildListings(seatResult.Rows, ev);
     var sourceEventId = $"{host}:{seasonCd}:{itemCd}";
 
     try
     {
         var s = GetStore() ?? throw new InvalidOperationException("MongoDB is unreachable - listing data cannot be persisted");
-        s.SaveEventInventory(sourceEventId, BuildDocs(sourceEventId, listings, ev.PriceLevels));
+        s.SaveEventInventory(sourceEventId, BuildDocs(sourceEventId, listings, ev));
     }
     catch (Exception ex)
     {
@@ -229,8 +242,11 @@ app.MapPost("/api/seatavailability", async (SeatAvailabilityRequest req) =>
             l.SeatingType,
             l.Quantity,
             seatKeys = l.SeatKeys,
+            l.SeatingTypeCd,
+            l.SeatStatuses,
         }),
-        coverage = seatResult.CoverageNote,
+        coverage = $"{seatResult.CoverageNote} {mapNote} listings={listings.Count} tickets={listings.Sum(l => l.Quantity)} " +
+                   $"ga_tickets={listings.Where(l => l.SeatingTypeCd == "G").Sum(l => l.Quantity)}",
     });
 });
 

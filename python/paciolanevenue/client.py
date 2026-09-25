@@ -33,7 +33,8 @@ from urllib.parse import urlparse, unquote
 from patchright.async_api import async_playwright
 
 from .models import Event, SeatRow
-from .parser import parse_event_page, seat_availability_path, NotAnEventPage
+from .parser import (parse_event_page, seat_availability_path, NotAnEventPage,
+                     EVENT_MAP_GQL_PATH, event_map_query, parse_event_map)
 from .grouping import parse_seat_availability
 
 BLOCK_MARKERS = [
@@ -185,10 +186,79 @@ class PaciolanEvenueClient:
         )
         return payload["status"], payload["body"]
 
+    async def _post_json_in_page(self, path: str, body: dict) -> tuple[int, str]:
+        """Same as _fetch_in_page, for a JSON POST (GraphQL)."""
+        payload = await self._page.evaluate(
+            """async ({path, body, timeoutMs}) => {
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), timeoutMs);
+                try {
+                    const r = await fetch(path, {method: 'POST', credentials: 'include', signal: ctrl.signal,
+                                                 headers: {'content-type': 'application/json'},
+                                                 body: JSON.stringify(body)});
+                    return {status: r.status, body: await r.text()};
+                } catch (e) {
+                    return {status: 0, body: String((e && e.message) || e)};
+                } finally {
+                    clearTimeout(t);
+                }
+            }""",
+            {"path": path, "body": body, "timeoutMs": self.timeout * 1000},
+        )
+        return payload["status"], payload["body"]
+
+    async def get_event_map(self, event: Event) -> str:
+        """Fills event.hold_codes / event.seating_types from GraphQL maps_eventMap (see
+        parser.event_map_query). Call after get_event() for the same event. Never raises:
+        on failure both stay None, grouping falls back to AVAILABLE == 1, and the returned
+        note says so (it goes into the coverage line)."""
+        if self._page is None:
+            return "map=unavailable(no page)"
+        try:
+            status, body = await self._post_json_in_page(EVENT_MAP_GQL_PATH, event_map_query(event))
+            if status != 200:
+                return f"map=unavailable(HTTP {status})"
+            event.hold_codes, event.seating_types = parse_event_map(json.loads(body))
+            if self.on_raw:
+                self.on_raw(event.host, f"{event.item_cd}_event_map", json.loads(body))
+            return "map=ok"
+        except Exception as e:
+            event.hold_codes = event.seating_types = None
+            return f"map=unavailable({str(e)[:80]})"
+
+    async def _event_via_warm_page(self, host: str, season_cd: str, item_cd: str) -> tuple:
+        """FAST PATH for the 2nd+ event on the same host: the current page already
+        passed PerimeterX, so fetch the next event page's HTML with an in-page
+        fetch() (patchright evaluates in an ISOLATED world by default) instead of
+        relaunching the browser + navigating. Measured 2026-09-24 (see
+        ../EVENUE_OPTIMIZATION_FINDINGS.md, E5): 6/6 events OK at 4.0-4.8s/event incl.
+        the seat API, vs 10-34s per event with a fresh browser. Navigating the SAME
+        browser to the next event page instead was re-challenged 3/3 (E4), so this
+        uses fetch(), never navigation. Raises PerimeterXBlocked when the response
+        looks blocked - the caller then falls back to the normal fresh-session path."""
+        status, html = await self._fetch_in_page(f"/event/{season_cd}/{item_cd}")
+        if status != 200:
+            raise PerimeterXBlocked(f"warm-page fetch of the event page returned HTTP {status}")
+        low = html.lower()
+        if any(m.lower() in low for m in BLOCK_MARKERS) or "__NEXT_DATA__" not in html:
+            raise PerimeterXBlocked("warm-page fetch of the event page returned a block page / no __NEXT_DATA__")
+        return parse_event_page(html, host, season_cd, item_cd)
+
     async def get_event(self, host: str, season_cd: str, item_cd: str) -> tuple[Event, list]:
-        """Returns (Event, list[PriceLevel]). Retries with a fresh proxy
+        """Returns (Event, list[PriceLevel]). If a page on the same host already
+        passed PerimeterX, tries the warm-page fast path first (see
+        _event_via_warm_page). Otherwise / on a block: retries with a fresh proxy
         session up to self.retries times if PerimeterX blocks the page."""
         url = f"https://{host}/event/{season_cd}/{item_cd}"
+        if self._page is not None and self._current_key and self._current_key[0] == host:
+            try:
+                event, price_levels = await self._event_via_warm_page(host, season_cd, item_cd)
+                self._current_key = (host, season_cd, item_cd)
+                return event, price_levels
+            except NotAnEventPage:
+                raise  # a real, readable page that is not an event - same as the fresh path
+            except Exception as e:  # blocked / page gone -> fall back to a fresh session
+                print(f"  !! warm-page fast path failed ({e}); opening a fresh session", file=sys.stderr)
         last_err = None
         for attempt in range(1, self.retries + 1):
             try:

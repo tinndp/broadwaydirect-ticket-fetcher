@@ -27,6 +27,20 @@ class Event:
     sold_out: bool = False
     total_capacity_ssr: Optional[int] = None
     available_ssr: Optional[int] = None
+    # Event-level purchase-quantity rules, verbatim from the SSR record (None = not sent;
+    # 0 is kept as 0 - eVenue's own value, not interpreted here).
+    min_qty: Optional[int] = None           # MINQTY
+    max_qty: Optional[int] = None           # MAXQTY
+    multiple_qty: Optional[int] = None      # MULTIPLEQTY
+    student_max_qty: Optional[int] = None   # STUDENTMAXQTY
+    # What the maps_eventMap GraphQL query needs (all read off the SSR / page props).
+    fac_cd: str = ""                        # FAC_CD
+    configuration_cd: str = ""              # CONFIGURATIONCD
+    base_map_id: str = ""                   # props.baseMapId
+    allow_seat_map: Optional[bool] = None   # ALLOWSEATMAP (False = quantity-only / best-available page)
+    # maps_eventMap result, verbatim (None = not fetched / failed -> grouping falls back to AVAILABLE=1):
+    hold_codes: Optional[dict] = None       # HOLDCODES: SEATSTATUS code -> type (available/accessible/limited/hidden)
+    seating_types: Optional[dict] = None    # SEATING_TYPES: price level code -> "R" (reserved) | "G" (GA)
 
     @property
     def event_url(self) -> str:
@@ -46,6 +60,11 @@ class PriceLevel:
     price: int = 0
     per_ticket_fee: int = 0
     facility_fee: int = 0
+    # Per (PL, PT) purchase-quantity rules, verbatim (None = not sent).
+    plpt_min_qty: Optional[int] = None          # PLPT_MINQTY
+    plpt_max_qty: Optional[int] = None          # PLPT_MAXQTY
+    plpt_multiple: Optional[int] = None         # PLPT_MULTIPLE
+    plpt_student_max_qty: Optional[int] = None  # PLPT_STUDENTMAXQTY
 
 
 @dataclass
@@ -89,15 +108,22 @@ class Listing:
     # The Section half of LEVELSECTIONCD ("OK:107" -> "107"), Level dropped -
     # the counterpart to `level` above. Output field name is "Section"
     # (Mongo, matches BroadwayDirectSourceInventory.Section there) / "section"
-    # (JSON). Populated for every listing, including Ungrouped ones.
+    # (JSON). For a GA quantity listing it is the price level name (PL_DESC).
     section: str = ""
-    seat_nums: list = field(default_factory=list)   # empty when Ungrouped
+    seat_nums: list = field(default_factory=list)   # empty for a GA listing / seat codes without digits
     seat_cds: list = field(default_factory=list)
-    seating_type: str = "Consecutive"  # "Consecutive" | "OddEven" | "Ungrouped"
+    # POS vocabulary only: "Consecutive" | "Odd/Even" (see grouping.py for the rule).
+    seating_type: str = "Consecutive"
+    # Letters of a lettered seat code ("W" for W1, "w" for 10w), or "PL<code>" for a GA
+    # quantity listing; "" for plain numbered seats. Part of the Mongo fingerprint only when set.
+    seat_tag: str = ""
+    seating_type_cd: str = ""          # SEATING_TYPES of the price level, verbatim ("R" / "G" / "")
+    seat_statuses: list = field(default_factory=list)  # distinct SEATSTATUS codes of the seats, verbatim
+    quantity_override: Optional[int] = None  # GA quantity listing: no seat keys, just a count
 
     @property
     def quantity(self) -> int:
-        return len(self.seat_keys)
+        return self.quantity_override if self.quantity_override is not None else len(self.seat_keys)
 
     @property
     def seat_range_label(self) -> str:

@@ -7,17 +7,19 @@ split, added to the same `BroadwayDirect.sln`, reusing `BroadwayDirect.Core.Prox
 PerimeterX browser, persistence) is its own, since eVenue's page/API shape and bot wall are both
 different from Broadway/StubHub.
 
-**`PaciolanEvenue.Fetch`/`PaciolanEvenue.Api` (WebView2) are Windows-only** and, as of 2026-09-22,
-still not proven working end-to-end there (confirmed `dotnet run` fails to even start on macOS -
-"No frameworks were found", `Microsoft.WindowsDesktop.App` has no macOS build; a real Windows run
-against a known-good event also surfaced 2 real bugs, both fixed - see git history / this file's
-own notes below).
+**`PaciolanEvenue.Fetch`/`PaciolanEvenue.Api` (WebView2) are Windows-only.** `dotnet run` fails to
+even start on macOS ("No frameworks were found", `Microsoft.WindowsDesktop.App` has no macOS
+build - confirmed 2026-09-22, not a code bug). A real Windows run against a known-good event
+(Oklahoma F26/F03) surfaced 2 real bugs during development - both fixed (see git history / this
+file's own notes below) - and **a follow-up real Windows run after the fixes confirmed it now
+works end-to-end**: fetches the event, retries through PerimeterX blocks with a fresh proxy
+session each time, groups listings, and persists to Mongo.
 
-**Use `PaciolanEvenue.Fetch.Playwright` + `PaciolanEvenue.Cli` instead for macOS/Linux** -
-added 2026-09-22 specifically to get the .NET port actually crawling real data without a Windows
-machine, deferring WebView2/`.Api` to later. **Real-tested and confirmed working**: Oklahoma F26/F03
-via a residential proxy - blocked on the first event-page attempt and 3 of 4 seat-availability
-attempts, succeeded on retry with a fresh session each time (same pattern the Python client proved),
+`PaciolanEvenue.Fetch.Playwright` + `PaciolanEvenue.Cli` also exist for macOS/Linux - added
+2026-09-22 to prove the .NET port could crawl real data without waiting for a Windows machine.
+**Real-tested and confirmed working**: the same Oklahoma F26/F03 via the same residential proxy -
+blocked on the first event-page attempt and 3 of 4 seat-availability attempts, succeeded on retry
+with a fresh session each time (same pattern the Python client proved),
 `capacityMatch=yes(80395) availableMatch=yes(1054)`, 130 listings written to
 `PaciolanEvenue.Cli/output/`. See "Cross-platform crawl (Playwright)" below.
 
@@ -53,6 +55,43 @@ PaciolanEvenue.Tests/   - xUnit: EventPageParserTests, SeatAvailabilityParserTes
                           vectors). 23/23 green on macOS.
 ```
 
+## Seat availability is CAPTURED, not fetched (2026-09-25)
+
+`PaciolanEvenue.Fetch.Playwright` no longer calls the seat-availability API with its own in-page `fetch()`. Microsoft.Playwright
+evaluates in the page's main world, and PerimeterX answered that call with 403 on every run (0/1, and 0/2 with the NuGet
+`Patchright`). The event page requests the same API by itself, and the client now captures that response (`IPage.Response`,
+listener attached before navigation, waits up to 15s, then retries with a new session). With stock Microsoft.Playwright 1.48:
+3/3 experiment runs, then real runs **Oklahoma F03 OK on attempt 1 in 13.9s** and **Purdue F06 OK** after new sessions.
+The output is identical to Python (127 listings / 1,037 seats for F03). Patchright is not needed here.
+Evidence: `../python/EVENUE_OPTIMIZATION_FINDINGS.md`.
+
+## Purchase-quantity rules: stored verbatim (2026-09-25)
+
+The crawler stores what eVenue sends and computes nothing. From the event page SSR (`discovery_eventDetailMPT[0]`):
+
+| Mongo field | Source | soonersports F26/F03 |
+|---|---|---|
+| `MinQuantity` / `MaxQuantity` / `QuantityIncrement` / `StudentMaxQuantity` | event `MINQTY` / `MAXQTY` / `MULTIPLEQTY` / `STUDENTMAXQTY` | 0 / 8 / 0 / 0 |
+| `PlptMinQuantity` / `PlptMaxQuantity` / `PlptMultiple` / `PlptStudentMaxQuantity` | `PLPT_MINQTY` / `PLPT_MAXQTY` / `PLPT_MULTIPLE` / `PLPT_STUDENTMAXQTY` of the same `PL_PT_PRICES` row the `Price` comes from | 0 / 0 / 0 / 0 |
+
+`null` means eVenue didn't send the field. `0` is kept as `0` (not turned into "no limit" here). eVenue sends no split list, so `Splits` stays `null`.
+
+## Listing rule (2026-09-25)
+
+`SeatGrouper.BuildListings` is a 1:1 port of `python/paciolanevenue/grouping.build_listings`. The rule and the evidence are in `python/EVENUE_INVENTORY_RULES.md`. It matches Python listing by listing on the real fixtures in `PaciolanEvenue.Tests/Fixtures/paciolan_rules/` (`expected_python.json`).
+
+- `GetEventMapAsync` (Playwright and WebView2 clients) POSTs GraphQL `maps_eventMap` in the page to get HOLDCODES + SEATING_TYPES. It never throws. On failure the grouper uses `AVAILABLE == 1` and the coverage says `map=unavailable(...)`.
+- `GetSeatAvailabilityAsync` (Playwright):
+  - Quantity-only pages (`AllowSeatMap == false`) never request seat availability, so it fetches in the page instead of waiting for a capture.
+  - If a seat-map page has not requested it after 15s, it tries one in-page fetch before opening a new session.
+- Real runs on macOS, 2026-09-25, via proxy:
+
+| Event | Result | Same as Python |
+|---|---|---|
+| Oklahoma SBF26/FS02 (GA, no seat map) | 1 listing, **6,879 GA tickets** (0 before) | yes |
+| Purdue F26/F04 | 1,160 listings, 8,734 tickets | yes |
+| UCLA N26/370 (Royce Hall) | **blocked**: the page never requested the seat map; own fetch got 403 (PerimeterX vs stock Playwright). Python/patchright: 87 listings | n/a |
+
 ## Cross-platform crawl (Playwright) - works on macOS/Linux now
 
 ```bash
@@ -80,7 +119,7 @@ No Mongo write from the CLI (matches `python/paciolanevenue/cli.py` - manual tes
 `PaciolanEvenueInventoryStore` yourself (see `PaciolanEvenue.Api/Program.cs`'s `GetStore()`/
 `BuildDocs()` for the exact shape) if you need this path to persist.
 
-## Step 1 (REQUIRED first, WebView2/.Api only): confirm WebView2 gets past PerimeterX
+## Step 1 (WebView2/.Api only, CONFIRMED PASSING 2026-09-22): WebView2 gets past PerimeterX
 
 On a **real Windows machine**, start the API (below) and call it with a real event page URL:
 
@@ -100,16 +139,23 @@ them only on the 3rd retry). A 502 after all `Retries` are exhausted with a Peri
 the detail is expected occasionally, not necessarily a bug - see that document before concluding
 the technique doesn't work.
 
-**Real bug found + fixed 2026-09-22** (first real Windows run, against `F26/F03` - a KNOWN-GOOD
-event previously verified by the Python client): got a 502 "did not render a single event (context
-!= 'eventdetailpage') - not a PerimeterX block, not retrying" for a URL that DOES exist.
-Root cause: `PaciolanEvenueBrowser.SettleAsync()` returned the instant no block marker was found,
-but never waited for the page to actually finish (re)loading after the PerimeterX challenge clears
-- the Python client's own `_settle()` does (`wait_for_load_state("networkidle", timeout=3000)`
-*after* the marker check passes), and the C# port had silently dropped that step. Fixed by polling
-`document.readyState` for up to 3s once markers clear, before reading the page. If you still see
-this exact error after pulling the fix, it means the itemCd genuinely does not exist (test against
-a URL you've confirmed loads in a real browser first).
+**2 real bugs found + fixed 2026-09-22**, both via real Windows runs against `F26/F03` (a
+KNOWN-GOOD event previously verified by the Python client) - a **follow-up Windows run after both
+fixes confirmed the endpoint now works end-to-end**:
+
+1. `PaciolanEvenueBrowser.SettleAsync()` returned the instant no block marker was found, but never
+   waited for the page to actually finish (re)loading after the PerimeterX challenge clears - the
+   Python client's own `_settle()` does (`wait_for_load_state("networkidle", timeout=3000)` *after*
+   the marker check passes), and the C# port had silently dropped that step. Fixed by polling
+   `document.readyState` for up to 3s once markers clear, before reading the page.
+2. Even with (1) fixed, the same 502 kept happening. Real diagnosis (added a diagnostic dump of the
+   retrieved HTML to the exception message, see `PaciolanEvenueClient.GetEventAsync`) showed a
+   THIRD PerimeterX response tier: a real `<title>` (so it doesn't look empty/wrong) but the
+   Next.js `__NEXT_DATA__` island stripped entirely, no block-marker text either - a "soft block"
+   neither `SettleAsync` nor `EventPageParser` recognized as a block. Fixed by treating a page with
+   no `__NEXT_DATA__` at all as suspected-blocked (retry with a fresh session), distinct from "has
+   `__NEXT_DATA__` but `context != 'eventdetailpage'"` (genuinely not an event page - itemCd wrong,
+   does not retry).
 
 ## Running the API
 

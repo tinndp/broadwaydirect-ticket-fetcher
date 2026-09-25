@@ -34,4 +34,24 @@ public class PaciolanEvenueListing
     public decimal DisplayPrice { get; set; }
     public string? PriceClass { get; set; }
     public string? SeatKeys { get; set; }
+
+    // Purchase-quantity rules, verbatim from the event page SSR (null = not sent, 0 kept as 0).
+    // Event level: MINQTY / MAXQTY / MULTIPLEQTY / STUDENTMAXQTY.
+    public int? MinQuantity { get; set; }
+    public int? MaxQuantity { get; set; }
+    public int? QuantityIncrement { get; set; }
+    public int? StudentMaxQuantity { get; set; }
+    // PLPT_* of the same PL_PT_PRICES row the Price comes from.
+    public int? PlptMinQuantity { get; set; }
+    public int? PlptMaxQuantity { get; set; }
+    public int? PlptMultiple { get; set; }
+    public int? PlptStudentMaxQuantity { get; set; }
+
+    // Verbatim eVenue codes behind this listing: maps_eventMap SEATING_TYPES of the price level
+    // ("R" reserved / "G" GA quantity listing) and the SEATSTATUS codes of its seats.
+    public string? SeatingType { get; set; }
+    public string? SeatStatus { get; set; }
+
+    /// <summary>Part of the Id fingerprint (ListingIdentity) - stored so Rowing can rebuild the same Id.</summary>
+    public string? SeatTag { get; set; }
 }

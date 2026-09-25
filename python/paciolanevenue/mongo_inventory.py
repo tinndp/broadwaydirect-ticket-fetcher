@@ -91,13 +91,16 @@ def build_listing_id(event_id: str, fingerprint: str) -> str:
     return compact_encode(get_deterministic_hash_code(preimage))
 
 
-def _paciolan_fingerprint(section: str, row: str, low_seat, high_seat) -> str:
+def _paciolan_fingerprint(section: str, row: str, low_seat, high_seat, seat_tag: str = "") -> str:
     """Modeled on ListingIdentity.BroadwayFingerprint (Section_Row_Low_High) -
     there is no official "BuildPaciolanEvenue" in the real C# yet since
     eVenue isn't a registered DataSourceType, so this is the closest
     existing analog, not a literal port of an existing eVenue-specific
     method."""
-    return f"{section}_{row}_{low_seat}_{high_seat}"
+    base = f"{section}_{row}_{low_seat}_{high_seat}"
+    # seat_tag (lettered seats "W", GA "PL6", no-digit codes "NC6") keeps e.g. W1-W3 and C1-C3 of one
+    # row apart. Plain numbered seats have no tag, so their _id is unchanged from before 2026-09-25.
+    return f"{base}_{seat_tag}" if seat_tag else base
 
 
 def source_event_id(event: Event) -> str:
@@ -112,6 +115,15 @@ def collection_name(event: Event) -> str:
     = "PaciolanEvenue_Inventories_NEW". `event` is accepted (unused) only to
     keep call sites symmetric with `source_event_id(event)`."""
     return "PaciolanEvenue_Inventories_NEW"
+
+
+def _price_row(listing: Listing, price_levels: list):
+    """The PL_PT_PRICES row _listing_price reads: Public ("P") for this
+    listing's price level, else the first one, else None."""
+    candidates = [pl for pl in price_levels if pl.pl == listing.price_level_cd]
+    if not candidates:
+        return None
+    return next((pl for pl in candidates if pl.pt == "P"), candidates[0])
 
 
 def _listing_price(listing: Listing, price_levels: list) -> float:
@@ -133,8 +145,7 @@ def listing_to_document(event: Event, listing: Listing, price_levels: list) -> d
     extras, reused here since eVenue has no dedicated C# model yet)."""
     low_seat = listing.seat_nums[0] if listing.seat_nums else None
     high_seat = listing.seat_nums[-1] if listing.seat_nums else None
-    seating = {"Consecutive": "Consecutive", "OddEven": "Odd/Even"}.get(
-        listing.seating_type, listing.seating_type)  # "Ungrouped" passes through as-is - not in Broadway's vocabulary, flags a non-numeric-seat listing
+    seating = listing.seating_type  # already POS vocabulary: "Consecutive" | "Odd/Even" (grouping.py)
 
     src_event_id = source_event_id(event)
     # IMPORTANT: listing.level is Level-only (see models.py Listing
@@ -143,12 +154,13 @@ def listing_to_document(event: Event, listing: Listing, price_levels: list) -> d
     # "OK:107" vs "OK:108") sharing a row/seat range would otherwise
     # collide onto the same _id if only listing.level were used here.
     full_section = f"{listing.level}:{listing.section}" if listing.section else listing.level
-    fingerprint = _paciolan_fingerprint(full_section, listing.row, low_seat, high_seat)
+    fingerprint = _paciolan_fingerprint(full_section, listing.row, low_seat, high_seat, listing.seat_tag)
     doc_id = build_listing_id(src_event_id, fingerprint)
 
     price_levels_for_pl = [pl for pl in price_levels if pl.pl == listing.price_level_cd]
     zone = price_levels_for_pl[0].pl_desc if price_levels_for_pl else ""
     price = _listing_price(listing, price_levels)
+    row = _price_row(listing, price_levels)
     try:
         price_level_id = int(listing.price_level_cd)
     except (TypeError, ValueError):
@@ -175,8 +187,26 @@ def listing_to_document(event: Event, listing: Listing, price_levels: list) -> d
         "PriceLevelCd": listing.price_level_cd,  # raw eVenue code, in case it's ever non-numeric
         "Zone": zone,  # DisplayName dropped per user request - was always identical to this
         "DisplayPrice": price,
-        "PriceClass": price_levels_for_pl[0].pt if price_levels_for_pl else "",
+        "PriceClass": row.pt if row else "",  # PT of the same row the Price comes from (.NET/Rowing do the same)
         "SeatKeys": ",".join(listing.seat_keys),
+        # Purchase-quantity rules, verbatim from the event page SSR (None = not sent, 0 kept as 0).
+        # Event level: MINQTY / MAXQTY / MULTIPLEQTY / STUDENTMAXQTY.
+        "MinQuantity": event.min_qty,
+        "MaxQuantity": event.max_qty,
+        "QuantityIncrement": event.multiple_qty,
+        "StudentMaxQuantity": event.student_max_qty,
+        # Price level level: PLPT_* of the same PL_PT_PRICES row the Price comes from.
+        "PlptMinQuantity": row.plpt_min_qty if row else None,
+        "PlptMaxQuantity": row.plpt_max_qty if row else None,
+        "PlptMultiple": row.plpt_multiple if row else None,
+        "PlptStudentMaxQuantity": row.plpt_student_max_qty if row else None,
+        # Verbatim eVenue codes behind this listing (maps_eventMap SEATING_TYPES of the price level:
+        # "R" reserved / "G" GA quantity listing; SEATSTATUS codes of its seats).
+        "SeatingType": listing.seating_type_cd or None,
+        "SeatStatus": ",".join(listing.seat_statuses) or None,
+        # Part of the _id fingerprint (see _paciolan_fingerprint) - stored so Rowing's
+        # ListingIdentity.ForIntegrationListing can rebuild the same _id from the document.
+        "SeatTag": listing.seat_tag or None,
     }
 
 

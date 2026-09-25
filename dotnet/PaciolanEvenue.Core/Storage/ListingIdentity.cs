@@ -25,16 +25,19 @@ public static class ListingIdentity
     /// different sections that share a level, row and seat range onto the same Id. Renders a
     /// missing low/high seat as the literal string "None" (matches the Python port's f-string
     /// behavior) so both implementations hash identically for the same listing.</summary>
-    public static string PaciolanEvenueFingerprint(string level, string section, string row, int? lowSeat, int? highSeat)
+    /// <summary>seatTag (lettered seats "W", GA "PL6", no-digit codes "NC6") is appended only when set,
+    /// so plain numbered seats keep the _id they had before 2026-09-25 (python mongo_inventory.py).</summary>
+    public static string PaciolanEvenueFingerprint(string level, string section, string row, int? lowSeat, int? highSeat, string? seatTag = null)
     {
         var fullSection = string.IsNullOrEmpty(section) ? level : $"{level}:{section}";
         var lowStr = lowSeat?.ToString(CultureInfo.InvariantCulture) ?? "None";
         var highStr = highSeat?.ToString(CultureInfo.InvariantCulture) ?? "None";
-        return $"{fullSection}_{row}_{lowStr}_{highStr}";
+        var fp = $"{fullSection}_{row}_{lowStr}_{highStr}";
+        return string.IsNullOrEmpty(seatTag) ? fp : $"{fp}_{seatTag}";
     }
 
-    public static string BuildPaciolanEvenue(string sourceEventId, string level, string section, string row, int? lowSeat, int? highSeat) =>
-        Build(sourceEventId, PaciolanEvenueFingerprint(level, section, row, lowSeat, highSeat));
+    public static string BuildPaciolanEvenue(string sourceEventId, string level, string section, string row, int? lowSeat, int? highSeat, string? seatTag = null) =>
+        Build(sourceEventId, PaciolanEvenueFingerprint(level, section, row, lowSeat, highSeat, seatTag));
 
     /// <summary>Same djb2-style ulong hash as the .NET Rowing bot / Python port.</summary>
     public static ulong GetDeterministicHashCode(string? str)

@@ -67,6 +67,14 @@ def parse_event_page(html: str, host: str, season_cd: str, item_cd: str) -> tupl
         sold_out=bool(ev_raw.get("SOLD_OUT")),
         total_capacity_ssr=ev_raw.get("TOTALCAPACITY"),
         available_ssr=ev_raw.get("AVAILABLE"),
+        min_qty=ev_raw.get("MINQTY"),
+        max_qty=ev_raw.get("MAXQTY"),
+        multiple_qty=ev_raw.get("MULTIPLEQTY"),
+        student_max_qty=ev_raw.get("STUDENTMAXQTY"),
+        fac_cd=str(ev_raw.get("FAC_CD") or ""),
+        configuration_cd=str(ev_raw.get("CONFIGURATIONCD") or ""),
+        base_map_id=str(props.get("baseMapId") or ""),
+        allow_seat_map=ev_raw.get("ALLOWSEATMAP"),
     )
 
     price_levels = []
@@ -79,6 +87,10 @@ def parse_event_page(html: str, host: str, season_cd: str, item_cd: str) -> tupl
             price=pl.get("PRICE") or 0,
             per_ticket_fee=pl.get("PER_TICKET_FEE") or 0,
             facility_fee=pl.get("FACILITY_FEE") or 0,
+            plpt_min_qty=pl.get("PLPT_MINQTY"),
+            plpt_max_qty=pl.get("PLPT_MAXQTY"),
+            plpt_multiple=pl.get("PLPT_MULTIPLE"),
+            plpt_student_max_qty=pl.get("PLPT_STUDENTMAXQTY"),
         ))
 
     return event, price_levels
@@ -111,3 +123,37 @@ def seat_availability_path(event: Event) -> str:
         f"&policyCd={event.policy_cd}"
         f"&policyType={event.policy_type}"
     )
+
+
+EVENT_MAP_GQL_PATH = "/pac-api/consumer/gql"
+
+
+def _gql_str(v) -> str:
+    return json.dumps(str(v or ""))
+
+
+def event_map_query(event: Event) -> dict:
+    """GraphQL body for maps_eventMap {HOLDCODES, SEATING_TYPES} - the same query (same
+    arguments) evenue.net's own map component sends on a seat-map event page (captured
+    2026-09-25, purduesports F26/F04). Quantity-only pages don't send it themselves, but the
+    endpoint answers it for them too (verified on 62 events / 11 hosts)."""
+    args = (
+        f"dataAccountId: {_gql_str(event.data_account_id)}, seasonCd: {_gql_str(event.season_cd)}, "
+        f"facilityCd: {_gql_str(event.fac_cd)}, itemCd: {_gql_str(event.item_cd)}, "
+        f"configCd: {_gql_str(event.configuration_cd)}, availability: \"A|S\", "
+        f"policyCd: {_gql_str(event.policy_cd)}, policyType: {_gql_str(event.policy_type)}, "
+        f"distributorId: {_gql_str(event.distributor_id)}, baseMapId: {_gql_str(event.base_map_id)}"
+    )
+    return {"query": "query { maps_eventMap(" + args + ") { SEATING_TYPES { pl seatingType } "
+                     "HOLDCODES { holdcode title message type } } }"}
+
+
+def parse_event_map(body: dict) -> tuple:
+    """maps_eventMap response -> (hold_codes {code: type}, seating_types {pl: "R"|"G"}).
+    Raises ValueError when the response has no maps_eventMap object."""
+    data = ((body or {}).get("data") or {}).get("maps_eventMap")
+    if not isinstance(data, dict):
+        raise ValueError(f"no maps_eventMap in response: {str(body)[:200]}")
+    hold_codes = {str(h.get("holdcode")): h.get("type") or "" for h in data.get("HOLDCODES") or []}
+    seating_types = {str(x.get("pl")): x.get("seatingType") or "" for x in data.get("SEATING_TYPES") or []}
+    return hold_codes, seating_types

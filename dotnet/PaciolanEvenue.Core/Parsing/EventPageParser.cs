@@ -83,6 +83,15 @@ public static partial class EventPageParser
         result.SoldOut = GetBool(ev, "SOLD_OUT");
         result.TotalCapacityFromSsr = GetInt(ev, "TOTALCAPACITY");
         result.AvailableFromSsr = GetInt(ev, "AVAILABLE");
+        result.MinQty = GetInt(ev, "MINQTY");
+        result.MaxQty = GetInt(ev, "MAXQTY");
+        result.MultipleQty = GetInt(ev, "MULTIPLEQTY");
+        result.StudentMaxQty = GetInt(ev, "STUDENTMAXQTY");
+        result.FacCd = GetStr(ev, "FAC_CD");
+        result.ConfigurationCd = GetStr(ev, "CONFIGURATIONCD");
+        result.BaseMapId = GetStr(props, "baseMapId");
+        result.AllowSeatMap = TryGet(ev, "ALLOWSEATMAP", out var asm) && asm.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? asm.ValueKind == JsonValueKind.True : null;
 
         if (TryGet(ev, "PL_PT_PRICES", out var plArr) && plArr.ValueKind == JsonValueKind.Array)
         {
@@ -98,8 +107,10 @@ public static partial class EventPageParser
                     Price = GetLong(pl, "PRICE") ?? 0,
                     PerTicketFee = GetLong(pl, "PER_TICKET_FEE") ?? 0,
                     FacilityFee = GetLong(pl, "FACILITY_FEE") ?? 0,
-                    PlptMinQty = GetInt(pl, "PLPT_MINQTY") ?? 0,
-                    PlptMaxQty = GetInt(pl, "PLPT_MAXQTY") ?? 0,
+                    PlptMinQty = GetInt(pl, "PLPT_MINQTY"),
+                    PlptMaxQty = GetInt(pl, "PLPT_MAXQTY"),
+                    PlptMultiple = GetInt(pl, "PLPT_MULTIPLE"),
+                    PlptStudentMaxQty = GetInt(pl, "PLPT_STUDENTMAXQTY"),
                 });
             }
         }

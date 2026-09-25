@@ -78,10 +78,11 @@ try
         return 2;
     }
 
-    Console.WriteLine($"coverage: {seatResult.CoverageNote}");
-    var available = seatResult.Rows.Where(r => r.Available).ToList();
-    var listings = SeatGrouper.GroupIntoListings(available);
-    Console.WriteLine($"{available.Count} available seats -> {listings.Count} listings");
+    var mapNote = await client.GetEventMapAsync(ev);
+    Console.WriteLine($"coverage: {seatResult.CoverageNote} {mapNote}");
+    var listings = SeatGrouper.BuildListings(seatResult.Rows, ev);
+    var ga = listings.Where(l => l.SeatingTypeCd == "G").Sum(l => l.Quantity);
+    Console.WriteLine($"{listings.Count} listings, {listings.Sum(l => l.Quantity)} tickets (GA quantity {ga})");
 
     var dir = Path.Combine(outDir, host, season, item);
     Directory.CreateDirectory(dir);

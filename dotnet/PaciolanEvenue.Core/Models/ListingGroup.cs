@@ -1,9 +1,7 @@
 namespace PaciolanEvenue.Core.Models;
 
-/// <summary>A run of contiguous seats produced by SeatGrouper - the sellable unit. Level/Section
-/// are separate fields (not a combined SectionLabel) - matches the Python port's final
-/// Listing.level / Listing.section split (see ~/etech/broadwaydirect-ticket-fetcher/python/
-/// paciolanevenue/models.py and the ETECH.Application.MarkAutomation Rowing integration).</summary>
+/// <summary>One sellable listing produced by SeatGrouper. Level/Section are separate fields (not a
+/// combined SectionLabel) - matches python/paciolanevenue/models.py Listing.</summary>
 public class ListingGroup
 {
     public string Level { get; init; } = "";
@@ -12,13 +10,26 @@ public class ListingGroup
     public string PriceLevelCd { get; init; } = "";
     public List<string> SeatKeys { get; init; } = new();
 
-    /// <summary>Empty when every seat in this listing had a non-numeric SeatCd (SeatingType ==
-    /// "Ungrouped").</summary>
+    /// <summary>Empty for a GA quantity listing and for seat codes with no digits.</summary>
     public List<int> SeatNums { get; init; } = new();
     public List<string> SeatCds { get; init; } = new();
 
-    /// <summary>"Consecutive", "OddEven", or "Ungrouped".</summary>
+    /// <summary>POS vocabulary only: "Consecutive" | "Odd/Even".</summary>
     public string SeatingType { get; init; } = "Consecutive";
 
-    public int Quantity => SeatKeys.Count;
+    /// <summary>Letters of a lettered seat code ("W" for W1, "w" for 10w), "PL{code}" for a GA quantity
+    /// listing, "NC{code}" for codes without digits; "" for plain numbered seats. Part of the listing
+    /// fingerprint only when set (ListingIdentity).</summary>
+    public string SeatTag { get; init; } = "";
+
+    /// <summary>maps_eventMap SEATING_TYPES of the price level, verbatim ("R" / "G" / "").</summary>
+    public string SeatingTypeCd { get; init; } = "";
+
+    /// <summary>Distinct SEATSTATUS codes of the listing's seats, verbatim, sorted.</summary>
+    public List<string> SeatStatuses { get; init; } = new();
+
+    /// <summary>GA quantity listing: no seat keys, just a count.</summary>
+    public int? QuantityOverride { get; init; }
+
+    public int Quantity => QuantityOverride ?? SeatKeys.Count;
 }

@@ -54,6 +54,27 @@ re-testing with a lower `retries` and see if attempt 1 succeeds more often - wou
 separate "IP reputation" from "some inherent extra PerimeterX friction" as the dominant factor,
 which is still not fully isolated (see `EVENUE_PERIMETERX_FINDINGS.md`).
 
+## Several events on one host: warm-page fast path (2026-09-25)
+
+Once a page on a host has passed PerimeterX, `get_event` for the next event on the **same host** fetches that event's
+page HTML with an in-page `fetch()`. patchright evaluates in an isolated world by default. It does not relaunch the
+browser or navigate, and the seat API is fetched the same way. Measured result: **about 4s per event instead of 10–34s**,
+with no new challenge. Navigating to the next event page was re-challenged 3/3 times, so the fast path never navigates.
+Any block on the fast path falls back to the normal fresh-session retry. `api.py` keeps one client per `(host, proxy)`,
+so this also applies across API requests. The CLI takes a repeatable `--item`.
+Evidence: `../EVENUE_OPTIMIZATION_FINDINGS.md`.
+
+## Purchase-quantity rules: stored verbatim (2026-09-25)
+
+The crawler stores what eVenue sends and computes nothing. From the event page SSR (`discovery_eventDetailMPT[0]`):
+
+| Mongo field | Source | soonersports F26/F03 |
+|---|---|---|
+| `MinQuantity` / `MaxQuantity` / `QuantityIncrement` / `StudentMaxQuantity` | event `MINQTY` / `MAXQTY` / `MULTIPLEQTY` / `STUDENTMAXQTY` | 0 / 8 / 0 / 0 |
+| `PlptMinQuantity` / `PlptMaxQuantity` / `PlptMultiple` / `PlptStudentMaxQuantity` | `PLPT_MINQTY` / `PLPT_MAXQTY` / `PLPT_MULTIPLE` / `PLPT_STUDENTMAXQTY` of the same `PL_PT_PRICES` row the `Price` comes from | 0 / 0 / 0 / 0 |
+
+`null` means eVenue didn't send the field. `0` is kept as `0` (not turned into "no limit" here). eVenue sends no split list, so `Splits` stays `null`.
+
 ## Discovery is still unsolved
 
 Same situation as documented in the .NET demo and `RECON.md`: eVenue's real "list every event"
@@ -68,9 +89,9 @@ here to avoid duplicating that unsolved problem twice).
 models.py    - Event, PriceLevel, SeatRow, Listing dataclasses
 parser.py    - reads __NEXT_DATA__ off an event page HTML into Event + price_levels
                (port of the .NET demo's EventPageParser.cs)
-grouping.py  - seats -> listings (port of SeatGrouper.cs); DEFAULT_RULES is
-               deliberately inert (center_seat_threshold=0, no suffixes) -
-               same reasoning as the .NET demo's SectionRules, see "Open questions"
+grouping.py  - seats -> listings, build_listings(): the rule agreed 2026-09-25 after 72 real
+               events (../EVENUE_INVENTORY_RULES.md) - GA quantity listings, Odd/Even
+               sections detected from the whole seat map, lettered seat codes
 client.py    - PaciolanEvenueClient (patchright): get_event() + get_seat_availability(),
                retry-with-fresh-proxy-session on a PerimeterX block (see above)
 api.py       - FastAPI, POST /api/seatavailability, mirrors to MongoDB in the
@@ -114,5 +135,5 @@ as `PROXY_LIST_PATH` for `broadwaydirect`), or these env vars are the only suppo
    checkout total.
 2. **Accessible seating** - `marker_id`/`seat_marker_active` are passed through, unused by
    grouping - see `grouping.py`'s docstring.
-3. **Grouping thresholds** - `DEFAULT_RULES` in `grouping.py` is inert (plain consecutive grouping,
-   no SIDES/CENTER split) until real per-venue rules are supplied - see that file.
+3. **Grouping** - resolved 2026-09-25, see `../EVENUE_INVENTORY_RULES.md` (the old inert
+   Broadway-style `DEFAULT_RULES` were replaced by rules measured on 72 real events).

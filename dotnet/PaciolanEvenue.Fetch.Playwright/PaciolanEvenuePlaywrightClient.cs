@@ -15,15 +15,18 @@ public sealed class PaciolanEvenuePlaywrightClient : IAsyncDisposable
     private readonly PaciolanEvenuePlaywrightBrowser _browser;
     private readonly int _retries;
     private readonly double _sleepSeconds;
+    private readonly int _captureWaitSeconds;
 
     private (string Host, string SeasonCd, string ItemCd)? _currentKey;
     private string _currentEventUrl = "";
 
     public PaciolanEvenuePlaywrightClient(string proxyTemplate = "", bool headless = false,
-        int retries = 4, double sleepSeconds = 0.5, int timeoutSeconds = 20, double settleMaxSeconds = 15.0)
+        int retries = 4, double sleepSeconds = 0.5, int timeoutSeconds = 20, double settleMaxSeconds = 15.0,
+        int captureWaitSeconds = 15)
     {
         _retries = retries;
         _sleepSeconds = sleepSeconds;
+        _captureWaitSeconds = captureWaitSeconds;
         _browser = new PaciolanEvenuePlaywrightBrowser(proxyTemplate, headless, timeoutSeconds, settleMaxSeconds);
     }
 
@@ -73,28 +76,48 @@ public sealed class PaciolanEvenuePlaywrightClient : IAsyncDisposable
     }
 
     /// <summary>Must be called after GetEventAsync for the SAME event. Returns (rows,
-    /// coverageNote). Retries the WHOLE session (fresh proxy id + re-navigate) on a fetch
-    /// error/non-JSON body, same as GetEventAsync's retry.</summary>
+    /// coverageNote). Uses the seat-availability response the event page requested ITSELF
+    /// (captured, not fetched - see python/EVENUE_OPTIMIZATION_FINDINGS.md). Retries the WHOLE
+    /// session (fresh proxy id + re-navigate, which re-captures) on a 403 / non-JSON body / no
+    /// captured response, same as GetEventAsync's retry.</summary>
     public async Task<SeatCrawlResult> GetSeatAvailabilityAsync(EventPageData ev, CancellationToken ct = default)
     {
         if (_currentKey is not { } key || key.Host != ev.Host || key.SeasonCd != ev.SeasonCd || key.ItemCd != ev.ItemCd)
             throw new InvalidOperationException("paciolanevenue: GetSeatAvailabilityAsync called for a different event than the open session - call GetEventAsync first");
 
-        var path = SeatAvailabilityParser.BuildPath(ev);
+        // Match the page's own call by its (decoded) event-id segment - query string and %-encoding differ
+        // between our BuildPath and what the page sends.
+        var eventSegment = $"/pac-api/seat-availability/event-id/{ev.DataAccountId}:{ev.SeasonCd}:{ev.ItemCd}/seats";
         string? lastErr = null;
 
         for (var attempt = 1; attempt <= _retries; attempt++)
         {
             int status;
             string body;
-            try
+            // The event page requests seat availability by itself shortly after load (~2-3s after
+            // settle in recon). We capture that response instead of calling fetch() ourselves - see
+            // PaciolanEvenuePlaywrightBrowser.TryGetCapturedSeatResponse for why.
+            // EXCEPT quantity-only pages (ALLOWSEATMAP=False, e.g. GA soccer/volleyball): they never
+            // request it (recon 2026-09-25), so there is nothing to capture - fetch it in the page.
+            var captured = ev.AllowSeatMap == false
+                ? await _browser.FetchInPageAsync(SeatAvailabilityParser.BuildPath(ev))
+                : await WaitForCapturedSeatResponseAsync(eventSegment, ct);
+            // Seat-map page that has not requested it yet (slow map component over a proxy, seen on
+            // UCLA Royce Hall 2026-09-25): try our own in-page fetch once before a new session.
+            if (!captured.HasValue)
             {
-                (status, body) = await _browser.FetchInPageAsync(path);
+                Console.Error.WriteLine($"  .. no captured seat-availability after {_captureWaitSeconds}s, fetching it in the page");
+                captured = await _browser.FetchInPageAsync(SeatAvailabilityParser.BuildPath(ev));
             }
-            catch (Exception e)
+            if (captured.HasValue)
+            {
+                status = captured.Value.Status;
+                body = captured.Value.Body;
+            }
+            else
             {
                 status = 0;
-                body = e.Message;
+                body = $"the event page did not request seat availability within {_captureWaitSeconds}s";
             }
 
             if (status == 200)
@@ -122,6 +145,39 @@ public sealed class PaciolanEvenuePlaywrightClient : IAsyncDisposable
         }
 
         throw new PaciolanEvenuePlaywrightBlockedException($"seat-availability gave up after {_retries} attempts: {lastErr}");
+    }
+
+    /// <summary>Fills ev.HoldCodes / ev.SeatingTypes from GraphQL maps_eventMap (in-page POST, same
+    /// query as the event page's map component). Call after GetSeatAvailabilityAsync for the same
+    /// event. Never throws: on failure both stay null (grouping falls back to AVAILABLE == 1) and the
+    /// returned note says why - it goes into the coverage line.</summary>
+    public async Task<string> GetEventMapAsync(EventPageData ev)
+    {
+        try
+        {
+            var (status, body) = await _browser.FetchInPageAsync(EventMapQuery.GqlPath, EventMapQuery.BuildBody(ev));
+            if (status != 200) return $"map=unavailable(HTTP {status})";
+            EventMapQuery.Apply(ev, body);
+            return "map=ok";
+        }
+        catch (Exception e)
+        {
+            ev.HoldCodes = null;
+            ev.SeatingTypes = null;
+            return $"map=unavailable({(e.Message.Length > 80 ? e.Message[..80] : e.Message)})";
+        }
+    }
+
+    private async Task<(int Status, string Body)?> WaitForCapturedSeatResponseAsync(string eventSegment, CancellationToken ct)
+    {
+        var until = DateTime.UtcNow.AddSeconds(_captureWaitSeconds);
+        while (true)
+        {
+            var r = _browser.TryGetCapturedSeatResponse(eventSegment);
+            if (r.HasValue || DateTime.UtcNow >= until)
+                return r;
+            await Task.Delay(250, ct);
+        }
     }
 
     private static string DescribeHtmlForDiagnosis(string html)

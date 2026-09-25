@@ -59,6 +59,30 @@ public sealed class PaciolanEvenuePlaywrightBrowser : IAsyncDisposable
 
     public IPage? Page { get; private set; }
 
+    /// <summary>
+    /// The event page's OWN seat-availability responses, captured via <see cref="IPage.Response"/>
+    /// (listener attached before navigation in <see cref="OpenFreshAsync"/>): decoded URL -> (status, body).
+    /// Why (python/EVENUE_OPTIMIZATION_FINDINGS.md, 2026-09-24): our own in-page fetch() runs in the page's
+    /// MAIN world here (Microsoft.Playwright has no isolated-world evaluate, unlike patchright Python) and
+    /// PerimeterX answered it 403 on every run (0/1 stock, 0/2 Patchright); the page calls the same API
+    /// itself, and capturing that response worked 3/3 runs with stock Microsoft.Playwright 1.48.
+    /// </summary>
+    private readonly Dictionary<string, (int Status, string Body)> _capturedSeatResponses = new();
+    private readonly object _captureGate = new();
+
+    /// <summary>Latest captured seat-availability response whose decoded URL contains
+    /// <paramref name="decodedPathFragment"/>, or null.</summary>
+    public (int Status, string Body)? TryGetCapturedSeatResponse(string decodedPathFragment)
+    {
+        lock (_captureGate)
+        {
+            foreach (var kv in _capturedSeatResponses)
+                if (kv.Key.Contains(decodedPathFragment, StringComparison.OrdinalIgnoreCase))
+                    return kv.Value;
+        }
+        return null;
+    }
+
     /// <summary>Session id actually used for the CURRENT browser's proxy username (after
     /// "{SESSIONID}" substitution), or "" when no proxy is configured.</summary>
     public string CurrentSessionId { get; private set; } = "";
@@ -117,6 +141,8 @@ public sealed class PaciolanEvenuePlaywrightBrowser : IAsyncDisposable
             ViewportSize = new ViewportSize { Width = 1280, Height = 900 },
         });
         Page = await _context.NewPageAsync();
+        lock (_captureGate) _capturedSeatResponses.Clear();
+        Page.Response += OnPageResponse;
 
         try
         {
@@ -174,14 +200,19 @@ public sealed class PaciolanEvenuePlaywrightBrowser : IAsyncDisposable
     /// real network stack/cookies/TLS fingerprint) and returns (status, body). Playwright's
     /// EvaluateAsync correctly awaits the async function directly - no postMessage workaround
     /// needed (see class doc comment).</summary>
-    public async Task<(int Status, string Body)> FetchInPageAsync(string path)
+    /// <param name="postJsonBody">null = GET; otherwise POST with this JSON body (GraphQL).</param>
+    public async Task<(int Status, string Body)> FetchInPageAsync(string path, string? postJsonBody = null)
     {
         var json = await Page!.EvaluateAsync<string>(
-            @"async ({ path, timeoutMs }) => {
+            @"async ({ path, timeoutMs, postBody }) => {
                 const ctrl = new AbortController();
                 const t = setTimeout(() => ctrl.abort(), timeoutMs);
                 try {
-                    const r = await fetch(path, { credentials: 'include', signal: ctrl.signal });
+                    const init = postBody === null
+                        ? { credentials: 'include', signal: ctrl.signal }
+                        : { method: 'POST', credentials: 'include', signal: ctrl.signal,
+                            headers: { 'content-type': 'application/json' }, body: postBody };
+                    const r = await fetch(path, init);
                     const body = await r.text();
                     return JSON.stringify({ status: r.status, body });
                 } catch (e) {
@@ -190,10 +221,25 @@ public sealed class PaciolanEvenuePlaywrightBrowser : IAsyncDisposable
                     clearTimeout(t);
                 }
             }",
-            new { path, timeoutMs = _timeoutSeconds * 1000 });
+            new { path, timeoutMs = _timeoutSeconds * 1000, postBody = postJsonBody });
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         return (root.GetProperty("status").GetInt32(), root.GetProperty("body").GetString() ?? "");
+    }
+
+    private async void OnPageResponse(object? sender, IResponse resp)
+    {
+        try
+        {
+            if (resp.Request.Method != "GET" || !resp.Url.Contains("/pac-api/seat-availability/", StringComparison.OrdinalIgnoreCase))
+                return;
+            var body = await resp.TextAsync();
+            lock (_captureGate) _capturedSeatResponses[Uri.UnescapeDataString(resp.Url)] = (resp.Status, body);
+        }
+        catch (Exception e)
+        {
+            Console.Error.WriteLine($"  !! could not read captured seat-availability response: {e.Message}");
+        }
     }
 
     private async Task CloseAsync()

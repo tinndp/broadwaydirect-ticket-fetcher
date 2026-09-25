@@ -61,4 +61,27 @@ public class EventPageParserTests
         Assert.StartsWith("/pac-api/seat-availability/event-id/242%3AF26%3AF06/seats", path);
         Assert.Contains("availability=A%7CS", path);
     }
+
+    [Fact]
+    public void Parse_copies_quantity_rules_verbatim()
+    {
+        // Real soonersports F26/F03 values (2026-09-25): MINQTY 0, MAXQTY 8, MULTIPLEQTY 0. 0 stays 0.
+        var html = LoadFixture().Replace("\"POLICYTYPE\": \"I\",",
+            "\"POLICYTYPE\": \"I\",\"MINQTY\":0,\"MAXQTY\":8,\"MULTIPLEQTY\":0,\"STUDENTMAXQTY\":0,");
+        Assert.Contains("\"MAXQTY\":8", html);
+        var ev = EventPageParser.Parse(html, "purduesports.evenue.net", "F26", "F06");
+        Assert.Equal((int?)0, ev.MinQty);
+        Assert.Equal((int?)8, ev.MaxQty);
+        Assert.Equal((int?)0, ev.MultipleQty);
+        Assert.Equal((int?)0, ev.StudentMaxQty);
+    }
+
+    [Fact]
+    public void Parse_leaves_quantity_rules_null_when_evenue_omits_them()
+    {
+        var ev = EventPageParser.Parse(LoadFixture(), "purduesports.evenue.net", "F26", "F06");
+        Assert.Null(ev.MaxQty);
+        // the fixture's PL_PT_PRICES rows send PLPT_MINQTY 1 / PLPT_MAXQTY 8 but no PLPT_MULTIPLE
+        Assert.All(ev.PriceLevels, pl => { Assert.Equal((int?)1, pl.PlptMinQty); Assert.Equal((int?)8, pl.PlptMaxQty); Assert.Null(pl.PlptMultiple); });
+    }
 }

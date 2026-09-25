@@ -90,6 +90,27 @@ public sealed class PaciolanEvenueClient : IAsyncDisposable
         throw new PaciolanEvenueBlockedException($"gave up after {_opt.Retries} proxy sessions: {lastErr?.Message}");
     }
 
+    /// <summary>Fills ev.HoldCodes / ev.SeatingTypes from GraphQL maps_eventMap (in-page POST, same
+    /// query as the event page's map component). Call after GetEventAsync for the same event. Never
+    /// throws: on failure both stay null (grouping falls back to AVAILABLE == 1) and the returned note
+    /// says why - it goes into the coverage line.</summary>
+    public async Task<string> GetEventMapAsync(EventPageData ev)
+    {
+        try
+        {
+            var (status, body) = await _browser.FetchInPageAsync(EventMapQuery.GqlPath, EventMapQuery.BuildBody(ev));
+            if (status != 200) return $"map=unavailable(HTTP {status})";
+            EventMapQuery.Apply(ev, body);
+            return "map=ok";
+        }
+        catch (Exception e)
+        {
+            ev.HoldCodes = null;
+            ev.SeatingTypes = null;
+            return $"map=unavailable({(e.Message.Length > 80 ? e.Message[..80] : e.Message)})";
+        }
+    }
+
     /// <summary>Must be called after GetEventAsync for the SAME event (reuses the open
     /// session/page). Returns (rows, coverageNote). If the API errors or returns a non-JSON body
     /// (still a block, served with HTTP 200), this retries the WHOLE session (fresh proxy id +

@@ -60,6 +60,34 @@ def test_listing_to_document_price_lookup_and_seat_keys_join():
     assert doc["PriceLevelId"] == 2
 
 
+def test_quantity_rules_are_copied_verbatim_from_the_event_page():
+    # Real values from soonersports F26/F03 (2026-09-25): MINQTY 0, MAXQTY 8, MULTIPLEQTY 0,
+    # STUDENTMAXQTY 0, every PL_PT_PRICES row PLPT_* = 0. Stored as-is, 0 is NOT turned into None.
+    import json, re
+    from paciolanevenue.parser import parse_event_page
+    fx = Path(__file__).resolve().parent.parent.parent / "dotnet" / "PaciolanEvenue.Tests" / "Fixtures" / "sample_event_page.html"
+    html = fx.read_text()
+    m = re.search(r'(<script id="__NEXT_DATA__"[^>]*>)(.*?)(</script>)', html, re.S)
+    data = json.loads(m.group(2))
+    ev_raw = data["props"]["pageProps"]["component"]["props"]["ssrData"]["discovery_eventDetailMPT"][0]
+    ev_raw.update(MINQTY=0, MAXQTY=8, MULTIPLEQTY=0, STUDENTMAXQTY=0)
+    for row in ev_raw["PL_PT_PRICES"]:
+        row.update(PLPT_MINQTY=2, PLPT_MAXQTY=6, PLPT_MULTIPLE=2, PLPT_STUDENTMAXQTY=0)
+    html = html[:m.start(2)] + json.dumps(data) + html[m.end(2):]
+    event, price_levels = parse_event_page(html, "purduesports.evenue.net", "F26", "F06")
+    pl = price_levels[0]
+    listing = Listing(level="E", row="10", price_level_cd=pl.pl, section="105", seat_keys=["10:8"], seat_nums=[8])
+    doc = listing_to_document(event, listing, price_levels)
+    assert (doc["MinQuantity"], doc["MaxQuantity"], doc["QuantityIncrement"], doc["StudentMaxQuantity"]) == (0, 8, 0, 0)
+    assert (doc["PlptMinQuantity"], doc["PlptMaxQuantity"], doc["PlptMultiple"], doc["PlptStudentMaxQuantity"]) == (2, 6, 2, 0)
+    assert doc["Splits"] is None  # eVenue sends no split list
+
+
+def test_quantity_rules_are_none_when_evenue_omits_them():
+    doc = listing_to_document(_event(), Listing(level="E", row="1", price_level_cd="9", seat_keys=["1:1"], seat_nums=[1]), [])
+    assert doc["MinQuantity"] is None and doc["MaxQuantity"] is None and doc["PlptMaxQuantity"] is None
+
+
 if __name__ == "__main__":
     import inspect
     mod = sys.modules[__name__]

@@ -240,7 +240,8 @@ public sealed class PaciolanEvenueBrowser : IAsyncDisposable
     /// <summary>Runs fetch(path, {credentials:'include'}) INSIDE the current page and returns
     /// (status, body) via postMessage - NOT via ExecuteScriptAsync's return value (see
     /// BroadwayDirect.Fetch/ProxyEnvironmentPool.cs's NOTE for why).</summary>
-    public Task<(int Status, string Body)> FetchInPageAsync(string path)
+    /// <param name="postJsonBody">null = GET; otherwise POST with this JSON body (GraphQL).</param>
+    public Task<(int Status, string Body)> FetchInPageAsync(string path, string? postJsonBody = null)
     {
         return _host.RunOnUiThreadAsync(async () =>
         {
@@ -254,9 +255,15 @@ public sealed class PaciolanEvenueBrowser : IAsyncDisposable
                 var script = $$"""
                     (async () => {
                         try {
-                            const r = await fetch({{JsonSerializer.Serialize(path)}}, {
+                            const postBody = {{JsonSerializer.Serialize(postJsonBody)}};
+                            const r = await fetch({{JsonSerializer.Serialize(path)}}, postBody === null ? {
                                 credentials: 'include',
                                 headers: { "Accept": "application/json, text/plain, */*" }
+                            } : {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: { "Accept": "application/json, text/plain, */*", "Content-Type": "application/json" },
+                                body: postBody
                             });
                             const body = await r.text();
                             window.chrome.webview.postMessage({{requestIdJson}} + "\u0001" + String(r.status) + "\u0001" + body);

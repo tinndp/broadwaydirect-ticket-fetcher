@@ -22,6 +22,7 @@ against each other):
       -d '{"eventId":"F06","url":"https://purduesports.evenue.net/event/F26/F06"}'
 """
 
+import asyncio
 import os
 import sys
 from typing import Optional
@@ -34,12 +35,11 @@ from broadwaydirect.proxy_pool import ProxyPool, normalize_proxy
 
 from .client import PaciolanEvenueClient, PerimeterXBlocked
 from .parser import NotAnEventPage, parse_event_url
-from .grouping import load_rules, group_into_listings
+from .grouping import build_listings
 from . import mongo_inventory
 
 app = FastAPI(title="Paciolan eVenue Fetch API")
 
-RULES = load_rules(os.environ.get("PACIOLAN_SECTION_RULES_PATH"))
 
 _PROXY_POOL: Optional[ProxyPool] = None
 _proxy_list_path = os.environ.get("PACIOLAN_PROXY_LIST_PATH")
@@ -78,6 +78,26 @@ def _pick_proxy(requested: Optional[str]) -> Optional[str]:
     return _PROXY_POOL.next() if _PROXY_POOL else None
 
 
+# One long-lived client per (host, proxy), each behind its own lock - same idea as
+# broadwaydirect/api.py's client pool. Keeps the PerimeterX-cleared browser between
+# requests so the 2nd+ event on a host takes the warm-page fast path (~4.5s instead of a
+# new browser + a new PerimeterX challenge per request; ../EVENUE_OPTIMIZATION_FINDINGS.md).
+# A client whose page got blocked reopens a fresh proxy session by itself (client.py).
+_clients: dict = {}
+
+
+def _client_for(host: str, proxy: Optional[str]) -> tuple:
+    key = (host, proxy or "")
+    if key not in _clients:
+        _clients[key] = (PaciolanEvenueClient(proxy=proxy), asyncio.Lock())
+    return _clients[key]
+
+
+@app.on_event("shutdown")
+async def _shutdown():
+    await asyncio.gather(*(c.close() for c, _ in _clients.values()), return_exceptions=True)
+
+
 class SeatAvailabilityRequest(BaseModel):
     """Same shape as stubhub/api.py's EventInventoryRequest ({eventId, url,
     proxy?}) - eventId is eVenue's itemCd (its closest equivalent to a bare
@@ -100,6 +120,7 @@ def _listing_dict(l) -> dict:
         "level": l.level, "section": l.section, "row": l.row,
         "price_level_cd": l.price_level_cd, "seating_type": l.seating_type, "quantity": l.quantity,
         "seat_range": l.seat_range_label, "seat_keys": l.seat_keys,
+        "seating_type_cd": l.seating_type_cd, "seat_statuses": l.seat_statuses,
     }
 
 
@@ -135,8 +156,8 @@ async def seat_availability(req: SeatAvailabilityRequest):
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": f"invalid proxy: {e}"})
 
-    client = PaciolanEvenueClient(proxy=proxy)
-    try:
+    client, lock = _client_for(host, proxy)
+    async with lock:
         try:
             event, price_levels = await client.get_event(host, season_cd, item_cd)
         except NotAnEventPage as e:
@@ -148,11 +169,11 @@ async def seat_availability(req: SeatAvailabilityRequest):
             seats, columns, coverage = await client.get_seat_availability(event)
         except PerimeterXBlocked as e:
             return JSONResponse(status_code=502, content={"error": f"blocked by PerimeterX on the API call: {e}"})
-    finally:
-        await client.close()
+        map_note = await client.get_event_map(event)
 
-    available = [s for s in seats if s.available]
-    listings = group_into_listings(available, rules=RULES)
+    listings = build_listings(seats, event, price_levels)
+    coverage = f"{coverage} {map_note} listings={len(listings)} tickets={sum(l.quantity for l in listings)} " \
+               f"ga_tickets={sum(l.quantity for l in listings if l.seating_type_cd == 'G')}"
     _mirror_to_mongo(event, price_levels, listings)
 
     return JSONResponse(content={
