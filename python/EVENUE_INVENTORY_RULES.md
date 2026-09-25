@@ -35,9 +35,20 @@ in `tests/fixtures/paciolan_rules/` (Royce Hall, Kansas S26/06, Michigan V07 H:1
 6. `Seating` is only `Consecutive` or `Odd/Even` (the POS vocabulary). `"Ungrouped"` is gone.
 7. **Listing id:** `Level:Section_Row_Low_High`, plus `_{SeatTag}` only when there is a tag (`W`, `PL6`, `NC6`). Plain numbered seats keep their old id. `SeatTag` is stored in the document so Rowing's `ListingIdentity.ForIntegrationListing` rebuilds the same id.
 8. **New document fields:**
-   - `SeatStatusType`: the standard HOLDCODES type of the seats' statuses — `available`, `accessible` (wheelchair / ADA / companion) or `limited` (obstructed view). SEATSTATUS codes themselves are not stored, because each school gives the same code a different meaning (`c` = Camera at one school, Companion Seat at another).
+   - `SeatStatusType`: only for special seats, from the standard HOLDCODES type — `accessible` (wheelchair / ADA / companion) or `limited` (obstructed view). Regular seats are null. SEATSTATUS codes themselves are not stored, because each school gives the same code a different meaning (`c` = Camera at one school, Companion Seat at another).
    - `SeatTag`: part of the id.
    - SEATING_TYPES R/G is not stored either: a GA listing is already recognisable from `Row = "GA"`, `Level = "GA"` and no seat numbers.
+
+## Document fields: decisions of 2026-09-25 (field audit on 60 events / 4,530 documents)
+
+- **No value = null**, never `""` or `0`. eVenue sends a quantity rule of `0` for "not set", which is stored as null too. Examples: `SeatKeys` of a GA listing, `PriceLevelId` of a non-numeric code, quantity rules of 0.
+- **One price-level field:** `PriceLevelId` = `PRICELEVELCD` as a number, the same name as Broadway/AXS. `PriceLevelCd` is not stored; the code is still used at run time to look up price, zone and price type.
+- **Kept although it duplicates `Price`:** `DisplayPrice` (Broadway/AXS parity).
+- **Quantity rules kept:** `MinQuantity` / `MaxQuantity` / `QuantityIncrement` (event: `MINQTY` / `MAXQTY` / `MULTIPLEQTY`) and `PriceLevelMinQuantity` / `PriceLevelMaxQuantity` / `PriceLevelQuantityIncrement` (`PLPT_MINQTY` / `PLPT_MAXQTY` / `PLPT_MULTIPLE`, renamed from `Plpt*`).
+  - Seen on 60 events: `MaxQuantity` 26 events, `PriceLevelMaxQuantity` 14, `PriceLevelMinQuantity` / `PriceLevelQuantityIncrement` 1 (Kansas: pairs only).
+  - `MinQuantity` / `QuantityIncrement` were never set, but they are kept because they apply to every buyer.
+- **Not stored:** `STUDENTMAXQTY` / `PLPT_STUDENTMAXQTY` (student purchase flow only, never set), raw SEATSTATUS codes, SEATING_TYPES R/G.
+- **`SeatStatusType`:** null for regular seats (every stored listing is sellable, so "available" says nothing). `accessible` / `limited` only for special seats: 59 of 4,530 documents, 10 events.
 
 ## Result on the 65 events with prices saved
 

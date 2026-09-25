@@ -115,8 +115,9 @@ class Listing:
     # Letters of a lettered seat code ("W" for W1, "w" for 10w), or "PL<code>" for a GA
     # quantity listing; "" for plain numbered seats. Part of the Mongo fingerprint only when set.
     seat_tag: str = ""
-    seating_type_cd: str = ""          # SEATING_TYPES of the price level, verbatim ("R" / "G" / "")
-    seat_statuses: list = field(default_factory=list)  # distinct SEATSTATUS codes of the seats, verbatim
+    # Internal (used by grouping / SeatStatusType, NOT stored as-is in Mongo):
+    seating_type_cd: str = ""          # SEATING_TYPES of the price level ("R" / "G" / "")
+    seat_statuses: list = field(default_factory=list)  # distinct SEATSTATUS codes of the seats
     quantity_override: Optional[int] = None  # GA quantity listing: no seat keys, just a count
 
     @property

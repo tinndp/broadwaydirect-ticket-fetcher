@@ -117,7 +117,8 @@ def test_royce_hall_real_map():
     ls = build_listings(seats, ev, pls)
     assert sum(l.quantity for l in ls) == sum(1 for s in seats if s.available)  # nothing lost
     assert Counter(l.seating_type for l in ls) == Counter({"Odd/Even": 70, "Consecutive": 17})
-    assert "available" in {listing_to_document(ev, l, pls)["SeatStatusType"] for l in ls}  # regular open seats
+    types = [listing_to_document(ev, l, pls)["SeatStatusType"] for l in ls]
+    assert set(types) == {None, "accessible"} and types.count("accessible") == 3  # regular seats -> null
     left = [l for l in ls if l.section == "LEFT" and l.seating_type == "Odd/Even"]
     assert left and all(n % 2 == 1 for l in left for n in l.seat_nums)
     assert all(b - a == 2 for l in left for a, b in zip(l.seat_nums, l.seat_nums[1:]))
@@ -163,7 +164,7 @@ def test_ga_quantity_page_counts_available_hold_codes_even_when_available_flag_i
     assert (g.quantity, g.row, g.level, g.seat_nums, g.seat_keys) == (2006, "GA", "GA", [], [])
     assert g.seat_tag == f"PL{g.price_level_cd}" and g.seat_statuses == ["O"]
     doc = listing_to_document(ev, g, pls)
-    assert doc["Quantity"] == 2006 and doc["LowSeat"] is None and doc["SeatStatusType"] == "available"
+    assert doc["Quantity"] == 2006 and doc["LowSeat"] is None and doc["SeatStatusType"] is None
     assert "SeatingType" not in doc and "SeatStatus" not in doc
     assert doc["Seating"] == "Consecutive"
 

@@ -64,7 +64,7 @@ Any block on the fast path falls back to the normal fresh-session retry. `api.py
 so this also applies across API requests. The CLI takes a repeatable `--item`.
 Evidence: `../EVENUE_OPTIMIZATION_FINDINGS.md`.
 
-## Purchase-quantity rules: stored verbatim (2026-09-25)
+## Purchase-quantity rules (2026-09-25)
 
 The crawler stores what eVenue sends and computes nothing. From the event page SSR (`discovery_eventDetailMPT[0]`):
 

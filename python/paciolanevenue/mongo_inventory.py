@@ -118,10 +118,12 @@ def collection_name(event: Event) -> str:
 
 
 def _seat_status_type(event: Event, listing: Listing):
-    """HOLDCODES types of the listing's seat statuses, e.g. "available" or "accessible, available"."""
+    """Only what is SPECIAL about the listing's seats (HOLDCODES types other than "available"):
+    "accessible", "limited" or "accessible, limited". Regular seats -> null (every stored listing is
+    sellable, so "available" says nothing - user decision 2026-09-25)."""
     if not event.hold_codes:
         return None
-    types = sorted({event.hold_codes[c] for c in listing.seat_statuses if event.hold_codes.get(c)})
+    types = sorted({event.hold_codes[c] for c in listing.seat_statuses if event.hold_codes.get(c)} - {"available"})
     return ", ".join(types) or None
 
 
@@ -212,10 +214,9 @@ def listing_to_document(event: Event, listing: Listing, price_levels: list) -> d
         "PriceLevelMinQuantity": _qty(row.plpt_min_qty if row else None),
         "PriceLevelMaxQuantity": _qty(row.plpt_max_qty if row else None),
         "PriceLevelQuantityIncrement": _qty(row.plpt_multiple if row else None),
-        # Standard eVenue category of the listing's seats (maps_eventMap HOLDCODES type of their
-        # SEATSTATUS codes): "available" = regular seats, "accessible" = wheelchair / ADA / companion
-        # (usually only for buyers who need them), "limited" = obstructed / limited view.
-        # Null when HOLDCODES could not be read.
+        # Special seats only (maps_eventMap HOLDCODES type of their SEATSTATUS codes): "accessible" =
+        # wheelchair / ADA / companion (usually only for buyers who need them), "limited" = obstructed /
+        # limited view. Null = regular seats (or HOLDCODES could not be read).
         "SeatStatusType": _seat_status_type(event, listing),
         # Part of the _id fingerprint (see _paciolan_fingerprint) - stored so Rowing's
         # ListingIdentity.ForIntegrationListing can rebuild the same _id from the document.

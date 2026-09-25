@@ -22,10 +22,11 @@ public class ListingGroup
     /// fingerprint only when set (ListingIdentity).</summary>
     public string SeatTag { get; init; } = "";
 
-    /// <summary>maps_eventMap SEATING_TYPES of the price level, verbatim ("R" / "G" / "").</summary>
+    /// <summary>maps_eventMap SEATING_TYPES of the price level ("R" / "G" / ""). Internal - not stored in Mongo.</summary>
     public string SeatingTypeCd { get; init; } = "";
 
-    /// <summary>Distinct SEATSTATUS codes of the listing's seats, verbatim, sorted.</summary>
+    /// <summary>Distinct SEATSTATUS codes of the listing's seats, sorted. Internal - only their HOLDCODES
+    /// type is stored (SeatStatusType), the codes themselves mean different things per school.</summary>
     public List<string> SeatStatuses { get; init; } = new();
 
     /// <summary>GA quantity listing: no seat keys, just a count.</summary>

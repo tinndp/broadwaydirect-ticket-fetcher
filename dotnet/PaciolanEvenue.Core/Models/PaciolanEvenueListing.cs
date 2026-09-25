@@ -45,8 +45,8 @@ public class PaciolanEvenueListing
     public int? PriceLevelMaxQuantity { get; set; }
     public int? PriceLevelQuantityIncrement { get; set; }
 
-    /// <summary>Standard category of the listing's seats (HOLDCODES type): "available" = regular seats,
-    /// "accessible" = wheelchair / ADA / companion, "limited" = obstructed view. Null when unknown.</summary>
+    /// <summary>Special seats only (HOLDCODES type): "accessible" = wheelchair / ADA / companion, "limited" =
+    /// obstructed view. Null = regular seats.</summary>
     public string? SeatStatusType { get; set; }
 
     /// <summary>Part of the Id fingerprint (ListingIdentity) - stored so Rowing can rebuild the same Id.</summary>

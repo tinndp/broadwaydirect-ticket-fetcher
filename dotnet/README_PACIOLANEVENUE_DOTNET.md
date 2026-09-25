@@ -31,8 +31,8 @@ PaciolanEvenue.Core/    - Models (EventPageData, PriceLevel, SeatRow, ListingGro
                           EventPageData, ported from the .NET 8 demo at
                           ~/Desktop/crawler-playbook/PaciolanEvenue/PaciolanEvenueCrawler/,
                           Newtonsoft -> System.Text.Json), Parsing/SeatAvailabilityParser,
-                          Grouping/SeatGrouper (same algorithm as BroadwayDirect.Core's, inert
-                          SectionRules default), Storage/ListingIdentity (djb2 hash, ported
+                          Grouping/SeatGrouper (listing rule of python/EVENUE_INVENTORY_RULES.md:
+                          GA quantity listings, Odd/Even sections), Storage/ListingIdentity (djb2 hash, ported
                           byte-for-byte from the real .NET Rowing bot's ListingIdentity.cs) +
                           Storage/PaciolanEvenueInventoryStore (Mongo - see "Mongo persistence").
                           Builds + tests on macOS/Linux.
@@ -65,7 +65,7 @@ listener attached before navigation, waits up to 15s, then retries with a new se
 The output is identical to Python (127 listings / 1,037 seats for F03). Patchright is not needed here.
 Evidence: `../python/EVENUE_OPTIMIZATION_FINDINGS.md`.
 
-## Purchase-quantity rules: stored verbatim (2026-09-25)
+## Purchase-quantity rules (2026-09-25)
 
 The crawler stores what eVenue sends and computes nothing. From the event page SSR (`discovery_eventDetailMPT[0]`):
 
