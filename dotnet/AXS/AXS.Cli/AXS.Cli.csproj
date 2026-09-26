@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>AXS.Cli</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- Manual-test CLI, same args / output files / exit codes as `python3 -m axs.cli event`. -->
+  <ItemGroup>
+    <ProjectReference Include="..\AXS.Core\AXS.Core.csproj" />
+    <ProjectReference Include="..\AXS.Fetch.Playwright\AXS.Fetch.Playwright.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Cross-platform (macOS/Linux/Windows) browser layer for AXS - port of python/axs/client.py.
+       Broadway has no Playwright/macOS variant, so this follows PaciolanEvenue.Fetch.Playwright.
+       Microsoft.Playwright is NOT patchright (no .NET port exists) - AXS needs the installed Google
+       Chrome (Channel="chrome"), same as the Python side, because bundled Chromium gets stuck on
+       Cloudflare's interactive Turnstile. -->
+  <ItemGroup>
+    <ProjectReference Include="..\AXS.Core\AXS.Core.csproj" />
+    <ProjectReference Include="..\..\BroadwayDirect\BroadwayDirect.Core\BroadwayDirect.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Patchright" Version="1.63.0" />
+  </ItemGroup>
+
+</Project>

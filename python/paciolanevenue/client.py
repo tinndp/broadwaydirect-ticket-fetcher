@@ -4,7 +4,7 @@ Bot wall: **PerimeterX** (cookies `_pxvid`/`_px2`/`pxcts`, sensor beacon to
 `px-cloud.net`). Unlike Cloudflare (broadwaydirect/client.py) and DataDome
 (stubhub/client.py) - both of which `patchright` gets past RELIABLY in this
 repo, verified live - PerimeterX was NOT reliably passed in probing done
-before this file existed (see EVENUE_PERIMETERX_FINDINGS.md): 5 real runs
+before this file existed (see docs/EVENUE_PERIMETERX_FINDINGS.md): 5 real runs
 through one residential proxy produced 3 different outcomes (blocked at the
 page, page OK but the API 403'd, blocked at the page again), pointing at
 **proxy IP reputation** as a major factor, not just which browser library is
@@ -90,7 +90,7 @@ class PaciolanEvenueClient:
         "{SESSIONID}" placeholder in the username - a fresh id is generated
         per (re)open, see _fresh_session_id.
         retries: number of DIFFERENT proxy sessions (egress IPs) to try
-        before giving up on one event - see EVENUE_PERIMETERX_FINDINGS.md
+        before giving up on one event - see docs/EVENUE_PERIMETERX_FINDINGS.md
         for why this is higher than Broadway's default (3).
         settle_poll_ms/settle_max_ms: how _settle polls for the page to
         stop looking like a PerimeterX challenge instead of a fixed sleep."""
@@ -231,7 +231,7 @@ class PaciolanEvenueClient:
         passed PerimeterX, so fetch the next event page's HTML with an in-page
         fetch() (patchright evaluates in an ISOLATED world by default) instead of
         relaunching the browser + navigating. Measured 2026-09-24 (see
-        ../EVENUE_OPTIMIZATION_FINDINGS.md, E5): 6/6 events OK at 4.0-4.8s/event incl.
+        docs/EVENUE_OPTIMIZATION_FINDINGS.md, E5): 6/6 events OK at 4.0-4.8s/event incl.
         the seat API, vs 10-34s per event with a fresh browser. Navigating the SAME
         browser to the next event page instead was re-challenged 3/3 (E4), so this
         uses fetch(), never navigation. Raises PerimeterXBlocked when the response

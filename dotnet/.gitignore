@@ -1,4 +1,6 @@
 bin/
 obj/
 *.user
-PaciolanEvenue.Cli/output/
+PaciolanEvenue/PaciolanEvenue.Cli/output/
+AXS/AXS.Cli/output/
+AXS/AXS.Api/output/

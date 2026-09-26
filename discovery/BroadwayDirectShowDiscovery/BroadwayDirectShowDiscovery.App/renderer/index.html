@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Broadway Direct - Show Discovery</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Broadway Direct <span class="app-header-accent">Show Discovery</span></h1>
+    <p class="app-header-subtitle">Discover every show &amp; performance currently ticketed through Broadway Direct (Tixtrack)</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2 class="card-title">1. Crawl settings</h2>
+      <form id="form">
+        <div class="field-grid">
+          <label>
+            <span class="field-label">Start month</span>
+            <input type="month" id="start" required />
+          </label>
+          <label>
+            <span class="field-label">End month</span>
+            <input type="month" id="end" required />
+          </label>
+          <label>
+            <span class="field-label">Days back</span>
+            <input type="number" id="daysBack" value="75" min="1" />
+            <span class="field-hint">Only checks shows whose page was updated in the last N days</span>
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" id="allShows" />
+            <span>
+              Check every show ever listed
+              <span class="field-hint block">Ignores "days back" above - slower, but won't miss a show</span>
+            </span>
+          </label>
+        </div>
+        <button type="submit" id="startBtn" class="btn btn-primary">Start Crawl</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">2. Auto-repeat <span class="card-title-note">(uses the settings above)</span></h2>
+      <div class="schedule-row">
+        <label>
+          <span class="field-label">Every</span>
+          <div class="interval-row">
+            <input type="number" id="intervalValue" value="60" min="1" />
+            <select id="intervalUnit">
+              <option value="minutes" selected>minutes</option>
+              <option value="hours">hours</option>
+            </select>
+          </div>
+        </label>
+        <label class="grow">
+          <span class="field-label">Output folder</span>
+          <div class="folder-row">
+            <input type="text" id="outputDir" placeholder="No folder chosen..." />
+            <button type="button" id="pickFolderBtn" class="btn btn-secondary">Choose...</button>
+          </div>
+        </label>
+        <div class="schedule-actions">
+          <button type="button" id="scheduleStartBtn" class="btn btn-primary">Start Schedule</button>
+          <button type="button" id="scheduleStopBtn" class="btn btn-danger hidden" disabled>Stop Schedule</button>
+        </div>
+      </div>
+      <p id="intervalWarning" class="warning hidden">
+        ⚠ Intervals under 30 minutes haven't been specifically tested for sustained, unattended use - see <code>NOTES.md</code>.
+      </p>
+      <p id="scheduleStatus" class="schedule-status"></p>
+    </section>
+
+    <section class="card">
+      <div class="card-title-row">
+        <h2 class="card-title">3. Progress</h2>
+        <div id="status" class="run-status hidden">
+          <span id="spinner" class="spinner hidden"></span>
+          <span id="statusText"></span>
+        </div>
+      </div>
+      <pre id="log" class="log-panel" data-placeholder="Log output will appear here once a crawl starts..."></pre>
+    </section>
+
+    <section id="result" class="card result-card hidden">
+      <h2 class="card-title">Result</h2>
+      <p id="resultText" class="result-text"></p>
+      <div class="result-actions">
+        <button id="saveBtn" class="btn btn-primary">Save CSV as...</button>
+        <span id="savedPath" class="field-hint"></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Reuses BroadwayDirect.Core for Event / PriceLevel. The StubHub path now
+       has its own Mongo store (StubHubInventoryStore - one collection per event,
+       one document per listing) and no longer writes the shared cleaned_events. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\BroadwayDirect\BroadwayDirect.Core\BroadwayDirect.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" Version="2.29.0" />
+  </ItemGroup>
+
+</Project>

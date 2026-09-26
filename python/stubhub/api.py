@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from broadwaydirect.models import Event
-from broadwaydirect.proxy_pool import normalize_proxy
+from shared.proxy_pool import normalize_proxy
 from .adapter import build_event, normalize_listings, parse_price_levels
 from .client import StubHubClient
 from .extract import event_id_from_url

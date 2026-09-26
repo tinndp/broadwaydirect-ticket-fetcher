@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AXS - Event Discovery</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>AXS <span class="app-header-accent">Event Discovery</span></h1>
+    <p class="app-header-subtitle">List every upcoming AXS event (AXS-ticketed and AXS marketplace) and sync it to S4K_AXS_SourceEvents</p>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2 class="card-title">1. Crawl settings</h2>
+      <form id="form">
+        <div class="field-grid">
+          <label>
+            <span class="field-label">Start date</span>
+            <input type="date" id="start" />
+            <span class="field-hint">Empty or in the past = today (AXS only lists upcoming events)</span>
+          </label>
+          <label>
+            <span class="field-label">End date</span>
+            <input type="date" id="end" />
+            <span class="field-hint">Last day to crawl (included). Empty = use "Days" below</span>
+          </label>
+          <label>
+            <span class="field-label">Days</span>
+            <input type="number" id="days" value="180" min="1" max="730" />
+            <span class="field-hint">Used when End date is empty: this many days from the start date (default 180, max 730)</span>
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" id="includeListedOnly" />
+            <span>
+              Include listed-only events
+              <span class="field-hint block">Events AXS lists but doesn't sell (neither AXS-ticketed nor on the AXS marketplace) - no inventory for the AXS crawler</span>
+            </span>
+          </label>
+        </div>
+        <button type="submit" id="startBtn" class="btn btn-primary">Start Crawl</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">2. Auto-repeat <span class="card-title-note">(uses the settings above)</span></h2>
+      <div class="schedule-row">
+        <label>
+          <span class="field-label">Every</span>
+          <div class="interval-row">
+            <input type="number" id="intervalValue" value="60" min="1" />
+            <select id="intervalUnit">
+              <option value="minutes" selected>minutes</option>
+              <option value="hours">hours</option>
+            </select>
+          </div>
+        </label>
+        <label class="grow">
+          <span class="field-label">Output folder</span>
+          <div class="folder-row">
+            <input type="text" id="outputDir" placeholder="No folder chosen..." />
+            <button type="button" id="pickFolderBtn" class="btn btn-secondary">Choose...</button>
+          </div>
+        </label>
+        <div class="schedule-actions">
+          <button type="button" id="scheduleStartBtn" class="btn btn-primary">Start Schedule</button>
+          <button type="button" id="scheduleStopBtn" class="btn btn-danger hidden" disabled>Stop Schedule</button>
+        </div>
+      </div>
+      <p id="intervalWarning" class="warning hidden">
+        ⚠ Intervals under 30 minutes haven't been specifically tested for sustained, unattended use - see <code>NOTES.md</code>.
+      </p>
+      <p id="scheduleStatus" class="schedule-status"></p>
+    </section>
+
+    <section class="card">
+      <div class="card-title-row">
+        <h2 class="card-title">3. Progress</h2>
+        <div id="status" class="run-status hidden">
+          <span id="spinner" class="spinner hidden"></span>
+          <span id="statusText"></span>
+        </div>
+      </div>
+      <pre id="log" class="log-panel" data-placeholder="Log output will appear here once a crawl starts..."></pre>
+    </section>
+
+    <section id="result" class="card result-card hidden">
+      <h2 class="card-title">Result</h2>
+      <p id="resultText" class="result-text"></p>
+      <div class="result-actions">
+        <button id="saveBtn" class="btn btn-primary">Save CSV as...</button>
+        <span id="savedPath" class="field-hint"></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

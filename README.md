@@ -1,65 +1,42 @@
-# broadwaydirect-project
+# ticket-crawlers
 
-A tool that pulls ticket-inventory data from sites running on the Tixtrack /
-Broadway Direct platform (e.g. `tickets.broadwaydirect.com`), gets past
-Cloudflare's bot challenge with a real browser, and groups individual seats
-into "listings" following the client's naming rules.
+Prototype and reference implementations of the ticket-site crawlers that end up in Rowing
+(`ETECH.Application/Rowing/<DS>`). Every site goes through the same steps:
+recon → Python fetcher → .NET on macOS → Rowing on Windows → event discovery (Node).
+This repo holds steps 2, 3 and 5. Broadway Direct is the standard; the others follow its layout.
 
-Two implementations live in this repo:
+```
+ticket-crawlers/
+├── python/        step 2 - one package per crawler (+ shared/), each with tests/ and docs/
+├── dotnet/        step 3 - Crawlers.sln, one folder per crawler: <Site>.Core/.Fetch/.Api/.Tests (+ README)
+└── discovery/     step 5 - Node crawler + Electron app per site (same names as the Rowing copy)
+```
 
-- **[`python/`](python/README.md)** - the original implementation
-  (`patchright`/Playwright for the Cloudflare bypass). Cross-platform (runs
-  on macOS/Linux/Windows), fully working and verified end-to-end. The HTTP
-  API (`api.py`) is the only fetch entry point - it fetches, groups into
-  listings, returns both the raw and grouped data in the response, and
-  mirrors both to MongoDB (the only persisted store - no SQLite). `reprocess.py`
-  can rebuild Mongo's cleaned_events (and optionally a CSV) from what's
-  already stored, without calling the live API again.
-- **[`dotnet/`](dotnet/README_DOTNET.md)** - a .NET 8 port
-  (WebView2 for the Cloudflare bypass). **Windows-only** for the fetch
-  layer (WebView2 requirement) and not yet verified working end-to-end on
-  Windows - see that folder's README for current status. Exposes only an
-  HTTP API (`BroadwayDirect.Api`), which currently returns raw JSON only
-  (no grouping/Mongo mirroring yet).
+| Crawler | Python | .NET | Discovery | Anti-bot |
+|---|---|---|---|---|
+| Broadway Direct | [`python/broadwaydirect`](python/broadwaydirect/README.md) | [`dotnet/BroadwayDirect`](dotnet/BroadwayDirect/README.md) | [`discovery/BroadwayDirectShowDiscovery`](discovery/BroadwayDirectShowDiscovery/README.md) | Cloudflare |
+| StubHub | [`python/stubhub`](python/stubhub/README.md) | [`dotnet/StubHub`](dotnet/StubHub/README.md) | - | DataDome |
+| Ticketmaster | - | [`dotnet/TicketMaster`](dotnet/TicketMaster/README.md) | - | Kasada-style |
+| Paciolan eVenue | [`python/paciolanevenue`](python/paciolanevenue/README.md) | [`dotnet/PaciolanEvenue`](dotnet/PaciolanEvenue/README.md) | - | PerimeterX |
+| AXS | [`python/axs`](python/axs/README.md) | [`dotnet/AXS`](dotnet/AXS/README.md) | [`discovery/AXSEventDiscovery`](discovery/AXSEventDiscovery/README.md) | Cloudflare Turnstile |
 
-## Other ticket sources
+## Run
 
-- **[`python/stubhub/`](python/stubhub/README.md)** - a second source that
-  normalizes `stubhub.com` listing data into the **same `price_levels` +
-  `listings` shape** and writes to the same MongoDB collections, tagged
-  `source = "stubhub.com"`. Different bot wall (DataDome, not Cloudflare)
-  and no seat-grouping step (StubHub listings arrive pre-bundled), so it's
-  its own package rather than a platform switch inside `broadwaydirect`. It
-  reuses `broadwaydirect`'s `mongo_storage` and `models`. Same API contract
-  (`POST /api/eventinventory`) plus a `POST /api/discover` for turning a
-  team/artist/venue URL into its event list.
-- **[`dotnet/` `StubHub.*`](dotnet/README_STUBHUB_DOTNET.md)** - the .NET 8
-  port of `python/stubhub/`, matching how `dotnet/` ports `python/`
-  (`StubHub.Core` / `StubHub.Fetch` / `StubHub.Api` / `StubHub.Tests`, added
-  to the same `BroadwayDirect.sln`, reusing `BroadwayDirect.Core` for
-  `Event` / `PriceLevel` / `MongoStore`). `StubHub.Core` + `StubHub.Tests`
-  build and pass on any OS; `StubHub.Fetch` (WebView2 for the DataDome
-  bypass) is **Windows-only** and not yet run end-to-end - same status as
-  `BroadwayDirect.Fetch`.
-- **[`python/paciolanevenue/`](python/paciolanevenue/README.md)** - a third
-  source, Paciolan eVenue (`*.evenue.net`). Different bot wall again
-  (PerimeterX) and a different page shape (Next.js `__NEXT_DATA__` +
-  a seat-availability JSON API, not a single inventory blob), so PerimeterX
-  bypass here is retry-with-a-fresh-proxy-session rather than a single-pass
-  poll - see `EVENUE_PERIMETERX_FINDINGS.md` in that folder. Mirrors to
-  MongoDB in the REAL `.NET` Rowing bot's shape (one shared collection per
-  datasource, not the `raw_events`/`cleaned_events` shape above), since its
-  intended destination is that Rowing integration - see that file's own
-  module docstring. **Verified working end-to-end** (2/2 real runs against
-  Purdue/Oklahoma, one only on retry).
-- **[`dotnet/` `PaciolanEvenue.*`](dotnet/README_PACIOLANEVENUE_DOTNET.md)** -
-  the .NET 8 port of `python/paciolanevenue/`, same split as `StubHub.*`
-  above. `PaciolanEvenue.Core` + `PaciolanEvenue.Tests` build and pass on any
-  OS; `PaciolanEvenue.Fetch`/`.Api` (WebView2 for the PerimeterX bypass) are
-  **Windows-only** and confirmed to fail to even start on macOS (missing
-  `Microsoft.WindowsDesktop.App` runtime) - not yet run end-to-end on
-  Windows.
+```bash
+cd python && python3 -m pytest                                   # all Python tests
+cd python && python3 -m axs.cli event --url https://www.axs.com/events/…
+cd dotnet && dotnet build Crawlers.sln && dotnet test Crawlers.sln
+cd dotnet && dotnet run --project AXS/AXS.Api                     # needs MONGO_URI for the Mongo mirror
+cd discovery/AXSEventDiscovery/AXSEventDiscovery.Crawler && npm install && npm run build && npm run cli -- --out events.csv
+cd discovery/AXSEventDiscovery/AXSEventDiscovery.App && npm install && npm start
+```
 
-See each subfolder's README for setup, usage, and scope/limitations (in
-particular: this project stops at fetching + grouping + storing data, it
-does not push listings to any resale marketplace).
+Settings that must never be committed:
+- `python/paciolanevenue/_local_proxy.py`
+- `python/output/`, `dotnet/**/output/`
+- `discovery/**/*.App/App.config` (copy `App.config.example`)
+- Mongo and SQL credentials come from the environment or Docker (`MONGO_URI`; SQL `sa` from the `etech_database-*` container).
+
+## Scope
+
+These tools fetch public data, group seats into listings and store them (MongoDB, `S4K_<DS>_SourceEvents`). They do not push listings to any resale marketplace; see `python/broadwaydirect/README.md` "Scope & limitations".

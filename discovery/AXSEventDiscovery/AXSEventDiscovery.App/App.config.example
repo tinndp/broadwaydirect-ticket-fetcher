@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <appSettings>
+    <!-- Same format/key as the other Rowing projects' App.config (see
+         BroadwayDirectShowDiscovery.App). Read by src/main.js before every crawl,
+         not entered in the UI. SQL Authentication only (User ID/Password):
+         "(localdb)" and "Integrated Security=True" can't be reached from this
+         Node app. Leave the values empty in git. -->
+    <add key="ConnectionString" value="" />
+    <!-- Optional. Proxy for the crawler, e.g. http://user-{SESSIONID}:pass@host:port.
+         {SESSIONID} is replaced with a new id on every browser launch.
+         Empty = the machine IP. -->
+    <add key="Proxy" value="" />
+  </appSettings>
+</configuration>

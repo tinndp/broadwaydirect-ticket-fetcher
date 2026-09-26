@@ -45,7 +45,7 @@ from pydantic import BaseModel
 from .client import BroadwayDirectClient
 from .grouping import load_rules, seats_from_inventory, group_into_listings, parse_price_levels_from_inventory
 from .models import Event
-from .proxy_pool import ProxyPool, normalize_proxy
+from shared.proxy_pool import ProxyPool, normalize_proxy
 
 app = FastAPI(title="BroadwayDirect Fetch API")
 

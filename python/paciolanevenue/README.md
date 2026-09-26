@@ -7,7 +7,7 @@ recon/testing), normalized into `price_levels` + `listings`, same shape philosop
 
 - `../../ETECH.Application.MarkAutomation/ETECH.Application/Rowing/PaciolanEvenue/RECON.md` - the
   site recon this is built from (endpoints, field meanings, what's confirmed vs not).
-- `../EVENUE_PERIMETERX_FINDINGS.md` - what was tried before this package (a plain .NET
+- `docs/EVENUE_PERIMETERX_FINDINGS.md` - what was tried before this package (a plain .NET
   `Microsoft.Playwright` crawler, then a throwaway `patchright` probe) and why this package is
   built the way it is.
 
@@ -28,7 +28,7 @@ Run everything from the `python/` directory (`cd python` first).
 Cloudflare and DataDome are both reliably passed in this repo with a fairly simple recipe: a real
 `headless=False` `patchright` browser, navigate to the right page, POLL until the challenge clears
 (not a fixed sleep), then call the API. `paciolanevenue/client.py` does exactly that too (see
-`_settle`) - but on its own it was **not reliable** against PerimeterX (`EVENUE_PERIMETERX_FINDINGS.md`:
+`_settle`) - but on its own it was **not reliable** against PerimeterX (`docs/EVENUE_PERIMETERX_FINDINGS.md`:
 5 real attempts, 3 different outcomes, same code, only the proxy's egress IP changing).
 
 What made the difference, empirically (2026-09-21, `paciolanevenue.cli`, real runs against the real
@@ -52,7 +52,7 @@ DataDome here also works for PerimeterX, just not on the first try with this spe
 Broadway's 3) to reflect that. If you have access to a higher-reputation proxy, it's worth
 re-testing with a lower `retries` and see if attempt 1 succeeds more often - would also help
 separate "IP reputation" from "some inherent extra PerimeterX friction" as the dominant factor,
-which is still not fully isolated (see `EVENUE_PERIMETERX_FINDINGS.md`).
+which is still not fully isolated (see `docs/EVENUE_PERIMETERX_FINDINGS.md`).
 
 ## Several events on one host: warm-page fast path (2026-09-25)
 
@@ -62,7 +62,7 @@ browser or navigate, and the seat API is fetched the same way. Measured result: 
 with no new challenge. Navigating to the next event page was re-challenged 3/3 times, so the fast path never navigates.
 Any block on the fast path falls back to the normal fresh-session retry. `api.py` keeps one client per `(host, proxy)`,
 so this also applies across API requests. The CLI takes a repeatable `--item`.
-Evidence: `../EVENUE_OPTIMIZATION_FINDINGS.md`.
+Evidence: `docs/EVENUE_OPTIMIZATION_FINDINGS.md`.
 
 ## Purchase-quantity rules (2026-09-25)
 
@@ -92,7 +92,7 @@ models.py    - Event, PriceLevel, SeatRow, Listing dataclasses
 parser.py    - reads __NEXT_DATA__ off an event page HTML into Event + price_levels
                (port of the .NET demo's EventPageParser.cs)
 grouping.py  - seats -> listings, build_listings(): the rule agreed 2026-09-25 after 72 real
-               events (../EVENUE_INVENTORY_RULES.md) - GA quantity listings, Odd/Even
+               events (docs/EVENUE_INVENTORY_RULES.md) - GA quantity listings, Odd/Even
                sections detected from the whole seat map, lettered seat codes
 client.py    - PaciolanEvenueClient (patchright): get_event() + get_seat_availability(),
                retry-with-fresh-proxy-session on a PerimeterX block (see above)
@@ -137,5 +137,5 @@ as `PROXY_LIST_PATH` for `broadwaydirect`), or these env vars are the only suppo
    checkout total.
 2. **Accessible seating** - `marker_id`/`seat_marker_active` are passed through, unused by
    grouping - see `grouping.py`'s docstring.
-3. **Grouping** - resolved 2026-09-25, see `../EVENUE_INVENTORY_RULES.md` (the old inert
+3. **Grouping** - resolved 2026-09-25, see `docs/EVENUE_INVENTORY_RULES.md` (the old inert
    Broadway-style `DEFAULT_RULES` were replaced by rules measured on 72 real events).

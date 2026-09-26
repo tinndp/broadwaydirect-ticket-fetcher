@@ -31,7 +31,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from broadwaydirect.proxy_pool import ProxyPool, normalize_proxy
+from shared.proxy_pool import ProxyPool, normalize_proxy
 
 from .client import PaciolanEvenueClient, PerimeterXBlocked
 from .parser import NotAnEventPage, parse_event_url
@@ -81,7 +81,7 @@ def _pick_proxy(requested: Optional[str]) -> Optional[str]:
 # One long-lived client per (host, proxy), each behind its own lock - same idea as
 # broadwaydirect/api.py's client pool. Keeps the PerimeterX-cleared browser between
 # requests so the 2nd+ event on a host takes the warm-page fast path (~4.5s instead of a
-# new browser + a new PerimeterX challenge per request; ../EVENUE_OPTIMIZATION_FINDINGS.md).
+# new browser + a new PerimeterX challenge per request; docs/EVENUE_OPTIMIZATION_FINDINGS.md).
 # A client whose page got blocked reopens a fresh proxy session by itself (client.py).
 _clients: dict = {}
 

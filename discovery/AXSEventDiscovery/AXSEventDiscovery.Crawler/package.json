@@ -1,0 +1,19 @@
+{
+  "name": "axs-event-discovery-crawler",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lists every upcoming AXS event (id, url, UTC/local time, venue, AXS-ticketed vs Marketplace) via AXS's own search API. Consumed by ../AXSEventDiscovery.App (Electron), which syncs S4K_AXS_SourceEvents.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "cli": "node dist/cli.js",
+    "postinstall": "patchright install chromium"
+  },
+  "dependencies": {
+    "patchright": "^1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

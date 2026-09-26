@@ -1,0 +1,13 @@
+{
+  "name": "broadwaydirect-show-discovery-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal desktop UI for the discovery crawler - reuses ../BroadwayDirectShowDiscovery.Crawler's logic directly, no duplicated code.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.0.0"
+  }
+}

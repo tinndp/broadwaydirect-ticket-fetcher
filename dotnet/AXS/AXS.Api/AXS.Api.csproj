@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- POST /api/eventinventory - same contract as python/axs/api.py (and BroadwayDirect.Api).
+       Unlike BroadwayDirect.Api / PaciolanEvenue.Api (WebView2, Windows-only) this one uses
+       AXS.Fetch.Playwright, so it runs on macOS/Linux too. The WebView2 variant is step 4. -->
+  <ItemGroup>
+    <ProjectReference Include="..\AXS.Core\AXS.Core.csproj" />
+    <ProjectReference Include="..\AXS.Fetch.Playwright\AXS.Fetch.Playwright.csproj" />
+  </ItemGroup>
+
+</Project>

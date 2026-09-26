@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Nullable reference annotations OFF on purpose: Models/Parsing/Grouping are meant to be
+         copied into the Rowing bot (net48 / C# 7.3) in step 4, same way PaciolanEvenue's Rowing
+         bot copied its parser/grouper. Keep this code C# 7.3-friendly: no records, init,
+         switch expressions, file-scoped namespaces or `string?`. -->
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <!-- ListingIdentity (the Rowing djb2 hash) is reused from PaciolanEvenue.Core, not copied -
+       same as python/axs/mongo_inventory.py importing it from paciolanevenue. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\PaciolanEvenue\PaciolanEvenue.Core\PaciolanEvenue.Core.csproj" />
+    <ProjectReference Include="..\..\BroadwayDirect\BroadwayDirect.Core\BroadwayDirect.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" Version="2.29.0" />
+  </ItemGroup>
+
+</Project>

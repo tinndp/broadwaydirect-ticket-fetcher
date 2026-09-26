@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.csv
+*.log
+.DS_Store
+# local settings (SQL connection string, proxy) - copy App.config.example to App.config
+**/*.App/App.config

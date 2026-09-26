@@ -1,5 +1,5 @@
 """Seats -> listings, the rule agreed with the user on 2026-09-25 after 72 real events on 12
-eVenue hosts (research notes: ../EVENUE_INVENTORY_RULES.md).
+eVenue hosts (research notes: docs/EVENUE_INVENTORY_RULES.md).
 
 1. Only price levels with a public price (in the event page's PL_PT_PRICES) are sold.
 2. Which seats are sellable depends on the price level's SEATING_TYPES (maps_eventMap):

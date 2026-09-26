@@ -41,7 +41,7 @@ from urllib.parse import urlparse
 
 from patchright.async_api import async_playwright
 
-from broadwaydirect.proxy_pool import normalize_proxy
+from shared.proxy_pool import normalize_proxy
 from .extract import event_id_from_url
 
 COMMON_QS = "?estimatedFees=false&quantity=0&sortDirection=1&sortBy=PRICE"

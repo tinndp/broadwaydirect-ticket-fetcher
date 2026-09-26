@@ -1,0 +1,16 @@
+{
+  "name": "axs-event-discovery-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Desktop UI for the AXS event discovery crawler - reuses ../AXSEventDiscovery.Crawler's logic directly (no duplicated code) and syncs results into S4K_AXS_SourceEvents.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "mssql": "^12.7.2"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0"
+  }
+}

@@ -9,6 +9,6 @@ NOT use broadwaydirect/stubhub's own raw_events/cleaned_events collections,
 and for a 2026-09-22 correction to the collection-naming claim made here.
 
 See README.md in this folder for the full picture, and
-EVENUE_PERIMETERX_FINDINGS.md for what was tried before this package existed
+docs/EVENUE_PERIMETERX_FINDINGS.md for what was tried before this package existed
 and why it's built the way it is.
 """
